@@ -1,0 +1,3 @@
+id,risk,severity,likelihood,mitigation,owner
+risk:onboarding,Onboarding friction delays time to value,high,medium,Build guided connectors and read-only credential templates,Product
+risk:trust,Teams may distrust automated metadata risk scores,medium,medium,Expose explainable scoring and source-level evidence,Mina

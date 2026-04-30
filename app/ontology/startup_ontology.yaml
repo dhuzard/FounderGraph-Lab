@@ -1,0 +1,95 @@
+classes:
+  Startup:
+    description: "The startup or project being analyzed."
+    fields: [name, sector, maturity_stage, location]
+  Founder:
+    description: "A founder or key team member."
+    fields: [name, role, background]
+  CustomerSegment:
+    description: "A group of potential users, buyers, or beneficiaries."
+    fields: [name, description, urgency, willingness_to_pay]
+  Problem:
+    description: "A pain point or unmet need experienced by a customer segment."
+    fields: [label, description, severity, frequency]
+  ValueProposition:
+    description: "The promised value delivered by the startup."
+    fields: [label, description, differentiator]
+  ProductFeature:
+    description: "A technical or functional product component."
+    fields: [label, description, maturity, linked_problem]
+  Assumption:
+    description: "A claim that is not fully proven yet."
+    fields: [label, description, criticality, confidence, validation_status]
+  Evidence:
+    description: "A source-backed observation supporting or contradicting an assumption."
+    fields: [label, source, evidence_type, strength]
+  Risk:
+    description: "A business, technical, regulatory, market, or execution risk."
+    fields: [label, risk_type, probability, impact, mitigation]
+  Experiment:
+    description: "A test designed to validate or invalidate an assumption."
+    fields: [label, hypothesis, method, success_criteria, status]
+  Decision:
+    description: "A strategic or operational decision."
+    fields: [label, date, rationale, decided_by]
+  Milestone:
+    description: "A time-bound objective."
+    fields: [label, deadline, success_criteria, status]
+  GrantCall:
+    description: "A funding opportunity."
+    fields: [name, funder, deadline, themes, fit_score]
+  Investor:
+    description: "An investor or investment organization."
+    fields: [name, stage, thesis]
+  Partner:
+    description: "A partner organization."
+    fields: [name, role, status]
+  Competitor:
+    description: "A competing product, company, or workaround."
+    fields: [name, differentiation]
+  IPAsset:
+    description: "An intellectual property asset."
+    fields: [name, status, owner]
+  RegulatoryConstraint:
+    description: "A regulatory or compliance constraint."
+    fields: [label, jurisdiction, impact]
+  TechnicalDependency:
+    description: "A technical dependency or integration requirement."
+    fields: [label, system, risk]
+  FinancialHypothesis:
+    description: "A financial forecast or business model hypothesis."
+    fields: [label, metric, assumption]
+relations:
+  - subject: Startup
+    predicate: TARGETS
+    object: CustomerSegment
+  - subject: CustomerSegment
+    predicate: HAS_PROBLEM
+    object: Problem
+  - subject: ProductFeature
+    predicate: ADDRESSES
+    object: Problem
+  - subject: ValueProposition
+    predicate: BASED_ON
+    object: Problem
+  - subject: Assumption
+    predicate: SUPPORTED_BY
+    object: Evidence
+  - subject: Assumption
+    predicate: CONTRADICTED_BY
+    object: Evidence
+  - subject: Experiment
+    predicate: TESTS
+    object: Assumption
+  - subject: Experiment
+    predicate: GENERATES
+    object: Evidence
+  - subject: Risk
+    predicate: THREATENS
+    object: Milestone
+  - subject: Decision
+    predicate: BASED_ON
+    object: Evidence
+  - subject: GrantCall
+    predicate: FUNDS
+    object: Experiment

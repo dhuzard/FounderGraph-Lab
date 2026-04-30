@@ -1,0 +1,106 @@
+{
+  "nodes": [
+    {
+      "id": "startup:metadatapp",
+      "type": "Startup",
+      "name": "Metadatapp",
+      "summary": "Metadata hygiene assistant for lean analytics teams."
+    },
+    {
+      "id": "founder:mina",
+      "type": "Founder",
+      "name": "Mina Laurent",
+      "background": "Former analytics engineering lead at a mid-market logistics firm."
+    },
+    {
+      "id": "market:data-teams",
+      "type": "Market",
+      "name": "Small data teams in regulated SMBs",
+      "size": "Fictional wedge of 18,000 EU and US companies."
+    },
+    {
+      "id": "assumption:spreadsheet-risk",
+      "type": "Assumption",
+      "statement": "Lean data teams will pay for automated spreadsheet and dashboard lineage checks.",
+      "category": "Demand",
+      "confidence": "medium",
+      "status": "testing",
+      "owner": "Mina"
+    },
+    {
+      "id": "assumption:setup-time",
+      "type": "Assumption",
+      "statement": "Customers can connect core metadata sources in under one hour without IT support.",
+      "category": "Activation",
+      "confidence": "low",
+      "status": "untested",
+      "owner": "Product"
+    },
+    {
+      "id": "evidence:interviews",
+      "type": "Evidence",
+      "summary": "Nine discovery interviews found recurring audit anxiety around orphan dashboards and undocumented spreadsheet exports.",
+      "source": "sample_data/metadatapp/interview_notes.md",
+      "strength": "moderate"
+    },
+    {
+      "id": "evidence:pilot",
+      "type": "Evidence",
+      "summary": "Two fictional pilot teams found 37 stale assets in the first scan but needed help configuring warehouse credentials.",
+      "source": "sample_data/metadatapp/pilot_summary.md",
+      "strength": "early"
+    },
+    {
+      "id": "risk:onboarding",
+      "type": "Risk",
+      "name": "Onboarding friction delays time to value.",
+      "severity": "high",
+      "likelihood": "medium",
+      "mitigation": "Build guided connectors and read-only credential templates.",
+      "owner": "Product"
+    },
+    {
+      "id": "risk:trust",
+      "type": "Risk",
+      "name": "Teams may distrust automated metadata risk scores.",
+      "severity": "medium",
+      "likelihood": "medium",
+      "mitigation": "Expose explainable scoring and source-level evidence.",
+      "owner": "Mina"
+    }
+  ],
+  "edges": [
+    {
+      "source": "founder:mina",
+      "relationship": "FOUNDED",
+      "target": "startup:metadatapp"
+    },
+    {
+      "source": "startup:metadatapp",
+      "relationship": "TARGETS",
+      "target": "market:data-teams"
+    },
+    {
+      "source": "assumption:spreadsheet-risk",
+      "relationship": "SUPPORTED_BY",
+      "target": "evidence:interviews",
+      "strength": "moderate"
+    },
+    {
+      "source": "assumption:setup-time",
+      "relationship": "CONTRADICTED_BY",
+      "target": "evidence:pilot",
+      "strength": "weak"
+    },
+    {
+      "source": "risk:onboarding",
+      "relationship": "RELATES_TO",
+      "target": "assumption:setup-time"
+    },
+    {
+      "source": "risk:trust",
+      "relationship": "RELATES_TO",
+      "target": "assumption:spreadsheet-risk"
+    }
+  ]
+}
