@@ -290,7 +290,10 @@ class Neo4jService:
             rel["source"] = source_id
             rel["target"] = target_id
             edges.append(rel)
-        return {"nodes": list(nodes.values()), "edges": edges}
+        result: dict[str, Any] = {"nodes": list(nodes.values()), "edges": edges}
+        if len(rows) >= limit:
+            result["truncated"] = True
+        return result
 
     def get_all_entities(self, limit: int = 200) -> list[dict[str, Any]]:
         query = """

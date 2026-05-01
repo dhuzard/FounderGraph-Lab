@@ -12,7 +12,7 @@ from typing import Any, Iterable
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
 
-from app.services.llm_service import LLMInvalidJSONError, LLMServiceError, OllamaLLMService
+from app.services.llm_service import LLMInvalidJSONError, LLMService, LLMServiceError, OllamaLLMService
 
 
 try:  # Integrator-owned shared models may be added later.
@@ -185,7 +185,7 @@ class EntityExtractor:
 
     def __init__(
         self,
-        llm_service: OllamaLLMService | None = None,
+        llm_service: LLMService | None = None,
         staging_dir: Path | str = DEFAULT_STAGING_DIR,
     ) -> None:
         self.llm_service = llm_service or OllamaLLMService()
@@ -282,14 +282,31 @@ class EntityExtractor:
         relations: list[CandidateKnowledgeRelation],
     ) -> None:
         self.staging_dir.mkdir(parents=True, exist_ok=True)
-        self._atomic_write_json(
+        self._merge_and_write(
             self.staging_dir / "candidate_entities.json",
             [_dump_model(entity) for entity in entities],
+            merge_key="id",
         )
-        self._atomic_write_json(
+        self._merge_and_write(
             self.staging_dir / "candidate_relations.json",
             [_dump_model(relation) for relation in relations],
+            merge_key="id",
         )
+
+    def _merge_and_write(self, path: Path, new_items: list[dict[str, Any]], merge_key: str = "id") -> None:
+        """Merge new_items into the existing staging file by merge_key, then write atomically."""
+        existing: dict[str, dict[str, Any]] = {}
+        if path.exists():
+            try:
+                for item in json.loads(path.read_text(encoding="utf-8")):
+                    if isinstance(item, dict) and item.get(merge_key):
+                        existing[str(item[merge_key])] = item
+            except (json.JSONDecodeError, OSError):
+                pass
+        for item in new_items:
+            if isinstance(item, dict) and item.get(merge_key):
+                existing[str(item[merge_key])] = item
+        self._atomic_write_json(path, list(existing.values()))
 
     @staticmethod
     def _atomic_write_json(path: Path, payload: list[dict[str, Any]]) -> None:

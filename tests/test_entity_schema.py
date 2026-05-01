@@ -4,17 +4,7 @@ import pytest
 
 from app.services.entity_extractor import CandidateKnowledgeEntity, CandidateKnowledgeRelation, EntityExtractor
 from app.services.llm_service import LLMInvalidJSONError
-
-
-class FakeLLM:
-    def __init__(self, responses):
-        self.responses = list(responses)
-
-    def generate_json(self, prompt):
-        response = self.responses.pop(0)
-        if isinstance(response, Exception):
-            raise response
-        return response
+from tests.conftest import FakeLLM
 
 
 def test_candidate_entity_schema_accepts_minimal_valid_entity():
