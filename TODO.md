@@ -121,6 +121,77 @@ Legend: ✅ done · 🔴 high · 🟡 medium · 🟢 low
 
 ---
 
+## Neurosymbolic / Standards Upgrades
+*(from architectural review — prioritised by implementation effort vs. value)*
+
+- 🔴 **Replace `OntologyService` with LinkML schema** — the current custom
+  `ontology_service.py` hand-rolls what LinkML provides: one YAML source that
+  compiles to Pydantic v2 models (`gen-pydantic`), JSON-Schema, and SHACL shapes
+  (`gen-shacl`). This eliminates the three-way drift between `entity.py` (Literal),
+  `startup_ontology.yaml`, and `neo4j_service.py` allowlists. Add `linkml` +
+  `linkml-runtime` to requirements. Replace `app/ontology/startup_ontology.yaml`
+  with a LinkML `.yaml` schema. Run `gen-pydantic` + `gen-shacl` as a `make generate`
+  step and commit the outputs. W3C / FAIR compliance is a bonus; the main gain is
+  eliminating schema drift.
+
+- 🔴 **Add pySHACL deterministic pre-validation gate** — insert a validation step
+  between LLM extraction and the human review queue. Use `pySHACL` with the
+  LinkML-generated SHACL shapes to auto-reject candidates that violate ontological
+  constraints (wrong relation endpoint types, missing required fields, nonsensical
+  predicate–entity-type combinations). Humans should only review data already proven
+  structurally and ontologically sound. Add `pyshacl` to requirements. Run as a
+  post-extraction step in `entity_extractor.py::extract_to_staging`; write rejected
+  candidates with violation details to `data/staging/shacl_violations.json`.
+
+- 🟡 **Redesign validation UI with confidence-stratified review** — the flat
+  `st.data_editor` table produces rubber-stamp approvals at scale (VeriLA research
+  finding: humans approve ~70% of AI outputs when the process "looks reasonable").
+  Stratify the review queue: SHACL-valid + high-confidence candidates auto-advance
+  to a fast-approval lane; medium-confidence go to the standard editor; low-confidence
+  and SHACL-flagged go to a detailed diff view showing source snippet alongside each
+  extracted field. Add an "LLM inference" badge on fields where no direct source quote
+  exists. Build in Streamlit with `st.tabs` for each confidence tier.
+
+- 🟡 **Add MCP servers for Neo4j and Qdrant** — expose the graph and vector store
+  as MCP tools so agents (including Claude Code sessions and external LLM clients)
+  can query the knowledge graph without bespoke integration code. Create
+  `app/mcp/neo4j_server.py` and `app/mcp/qdrant_server.py` using the MCP Python SDK.
+  Expose `query_graph`, `get_entity`, `get_unsupported_assumptions`,
+  `get_risks_by_milestone` as tools for Neo4j; `semantic_search` for Qdrant.
+  Add `make mcp` target to `Makefile`.
+
+- 🟡 **Add bi-temporal provenance to entity and relation schema** — startup facts
+  change rapidly (valuations, board members, assumptions validated/invalidated). The
+  current schema tracks only `updated_at` (transaction time). Add `valid_from` and
+  `valid_to` (valid time — when the fact was true in the world) and `superseded_by`
+  (relation to a newer version of the same entity). Evaluate **Graphiti** (Zep AI,
+  open-source, Neo4j-native bi-temporal memory) as a drop-in before rolling manually.
+  Add to ontology YAML and `ensure_schema()` constraints. Surface in the audit agents
+  as "stale facts" alerts.
+
+- 🟢 **Dynamic extraction prompt from YAML schema** — (overlaps with bug #5 above,
+  listed here for architectural context) OntoGPT/SPIRES is not a fit for general
+  startup documents (biomedical-first tooling), but its core principle — grounding
+  extraction in the schema — applies. When `entity_extractor.py` builds the entity
+  extraction prompt, inject the full entity type list, field definitions, and
+  descriptions from `OntologyConfig` rather than using a hardcoded prompt template.
+  Custom types added via `make init` then automatically become extractable without
+  any prompt edits.
+
+- 🟢 **Evaluate CocoIndex as ingestion layer** — CocoIndex (`Target = F(Source)`)
+  is compatible with FounderGraph Lab's HITL model if scoped to the extraction-to-
+  staging half of the pipeline only. The boundary: CocoIndex owns
+  `files → LLM extraction → candidate_*.json`; FounderGraph Lab's `ValidationStore`
+  and `Neo4jService` own `candidate_*.json → human review → validated → Neo4j`.
+  Key prerequisite: write a custom CocoIndex `TargetConnector` that serialises
+  extracted records to FounderGraph Lab's staging JSON format. Main gains: incremental
+  memoization (unchanged docs never re-extracted), parallel async extraction,
+  `instructor`-backed structured output, entity resolution across documents.
+  Main risk: CocoIndex re-runs on prompt changes overwrite in-progress human reviews
+  in staging — mitigate with `extraction_run_id` tagging.
+
+---
+
 ## Developer / Operational Experience
 
 - 🟢 **No `.dockerignore`** — `COPY . .` in the Dockerfile includes `tests/`, `sample_data/`,
