@@ -118,6 +118,15 @@ class Neo4jService:
     ) -> None:
         self.config = config or Neo4jConfig.from_env()
         self.driver = driver or create_driver(self.config)
+        # Derive allowlists from the ontology YAML when not explicitly supplied.
+        if allowed_labels is None or allowed_relationships is None:
+            try:
+                from app.services.ontology_service import load_ontology
+                onto = load_ontology()
+                allowed_labels = allowed_labels or onto.allowed_labels()
+                allowed_relationships = allowed_relationships or onto.allowed_relationships()
+            except Exception:
+                pass
         self.allowed_labels = allowed_labels or DEFAULT_ALLOWED_LABELS
         self.allowed_relationships = allowed_relationships or DEFAULT_ALLOWED_RELATIONSHIPS
 
@@ -290,7 +299,10 @@ class Neo4jService:
             rel["source"] = source_id
             rel["target"] = target_id
             edges.append(rel)
-        return {"nodes": list(nodes.values()), "edges": edges}
+        result: dict[str, Any] = {"nodes": list(nodes.values()), "edges": edges}
+        if len(rows) >= limit:
+            result["truncated"] = True
+        return result
 
     def get_all_entities(self, limit: int = 200) -> list[dict[str, Any]]:
         query = """

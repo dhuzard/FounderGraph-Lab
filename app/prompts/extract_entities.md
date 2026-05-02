@@ -3,24 +3,7 @@ You are a startup knowledge extraction assistant.
 Extract reusable startup knowledge entities from the document.
 
 Allowed entity types:
-- CustomerSegment
-- Problem
-- ValueProposition
-- ProductFeature
-- Assumption
-- Evidence
-- Risk
-- Experiment
-- Decision
-- Milestone
-- GrantCall
-- Investor
-- Partner
-- Competitor
-- IPAsset
-- RegulatoryConstraint
-- TechnicalDependency
-- FinancialHypothesis
+{{entity_types}}
 
 Rules:
 1. Return strict JSON only.

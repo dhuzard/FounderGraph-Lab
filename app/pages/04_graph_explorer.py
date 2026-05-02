@@ -75,6 +75,11 @@ if load_graph:
         st.error(f"Unable to load graph: {exc}")
         st.stop()
 
+    if graph.get("truncated"):
+        st.warning(
+            f"Graph display capped at {limit} relations. "
+            "Increase 'Max relations' or add label/relation filters to see the full picture."
+        )
     st.metric("Nodes", len(graph["nodes"]))
     st.metric("Relations", len(graph["edges"]))
     components.html(graph_to_pyvis_html(graph), height=760, scrolling=True)

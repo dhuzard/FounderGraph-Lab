@@ -1,11 +1,11 @@
-"""Ollama-backed JSON-only LLM service."""
+"""LLM service interface and Ollama implementation."""
 
 from __future__ import annotations
 
 import json
 import os
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Protocol, runtime_checkable
 
 import requests
 
@@ -16,6 +16,17 @@ class LLMServiceError(RuntimeError):
 
 class LLMInvalidJSONError(LLMServiceError):
     """Raised when the model returns non-JSON or schema-invalid content."""
+
+
+@runtime_checkable
+class LLMService(Protocol):
+    """Protocol for all LLM backends. Implement both methods to plug in a new provider."""
+
+    def generate_text(self, prompt: str) -> str:
+        ...
+
+    def generate_json(self, prompt: str) -> Any:
+        ...
 
 
 @dataclass(frozen=True)

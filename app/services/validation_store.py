@@ -59,9 +59,10 @@ def load_json(path: Path) -> Any:
 
 def save_json(path: Path, payload: Any) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("w", encoding="utf-8") as handle:
-        json.dump(payload, handle, indent=2, ensure_ascii=False, sort_keys=True)
-        handle.write("\n")
+    text = json.dumps(payload, indent=2, ensure_ascii=False, sort_keys=True) + "\n"
+    tmp_path = path.with_suffix(path.suffix + ".tmp")
+    tmp_path.write_text(text, encoding="utf-8")
+    tmp_path.replace(path)
 
 
 def first_existing(base_dir: Path, names: Iterable[str]) -> Path | None:

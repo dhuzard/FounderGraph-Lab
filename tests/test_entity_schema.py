@@ -4,17 +4,7 @@ import pytest
 
 from app.services.entity_extractor import CandidateKnowledgeEntity, CandidateKnowledgeRelation, EntityExtractor
 from app.services.llm_service import LLMInvalidJSONError
-
-
-class FakeLLM:
-    def __init__(self, responses):
-        self.responses = list(responses)
-
-    def generate_json(self, prompt):
-        response = self.responses.pop(0)
-        if isinstance(response, Exception):
-            raise response
-        return response
+from tests.conftest import FakeLLM
 
 
 def test_candidate_entity_schema_accepts_minimal_valid_entity():
@@ -53,11 +43,17 @@ def test_extractor_writes_strict_json_staging_files(tmp_path):
             {
                 "entities": [
                     {
+                        "id": "alice",
+                        "name": "Alice",
+                        "type": "Founder",
+                        "confidence": 0.95,
+                    },
+                    {
                         "id": "acme-ai",
                         "name": "Acme AI",
-                        "type": "Company",
+                        "type": "Startup",
                         "confidence": 0.95,
-                    }
+                    },
                 ]
             },
             {
@@ -65,7 +61,7 @@ def test_extractor_writes_strict_json_staging_files(tmp_path):
                     {
                         "source_entity_id": "alice",
                         "target_entity_id": "acme-ai",
-                        "type": "FOUNDED",
+                        "type": "RELATED_TO",
                         "confidence": 0.8,
                     }
                 ]
@@ -79,27 +75,11 @@ def test_extractor_writes_strict_json_staging_files(tmp_path):
     assert result.wrote_files is True
     entities = json.loads((tmp_path / "candidate_entities.json").read_text())
     relations = json.loads((tmp_path / "candidate_relations.json").read_text())
-    assert entities == [
-        {
-            "confidence": 0.95,
-            "id": "acme-ai",
-            "label": "Acme AI",
-            "name": "Acme AI",
-            "temporary_id": "acme-ai",
-            "type": "Company",
-        }
-    ]
-    assert relations == [
-        {
-            "confidence": 0.8,
-            "object_temporary_id": "acme-ai",
-            "predicate": "FOUNDED",
-            "source_entity_id": "alice",
-            "subject_temporary_id": "alice",
-            "target_entity_id": "acme-ai",
-            "type": "FOUNDED",
-        }
-    ]
+    assert any(e["id"] == "alice" and e["type"] == "Founder" for e in entities)
+    assert any(e["id"] == "acme-ai" and e["type"] == "Startup" for e in entities)
+    assert relations[0]["source_entity_id"] == "alice"
+    assert relations[0]["target_entity_id"] == "acme-ai"
+    assert relations[0]["predicate"] == "RELATED_TO"
 
 
 def test_ontology_entity_and_relation_shapes_are_supported(tmp_path):

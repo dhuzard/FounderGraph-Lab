@@ -18,7 +18,11 @@ def main() -> None:
     st.caption("Generate graph, assumptions, evidence, risk, audit, and zip artifacts.")
 
     if st.button("Create export bundle", type="primary"):
-        paths = export_all()
+        try:
+            paths = export_all()
+        except ValueError as exc:
+            st.error(str(exc))
+            return
         st.success(f"Export bundle created: {paths['zip']}")
         for key, path in paths.items():
             st.write(f"**{key}**: `{path}`")

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import math
 from pathlib import Path
 from typing import Any
 
@@ -16,6 +17,8 @@ from app.services.demo_seed import seed_demo_candidates
 
 
 st.set_page_config(page_title="Validate Knowledge", layout="wide")
+
+PAGE_SIZE = 50
 
 
 def editable_frame(records: list[dict[str, Any]], kind: str) -> pd.DataFrame:
@@ -89,21 +92,56 @@ metric_cols[1].metric("Validated entities", entity_validated)
 metric_cols[2].metric("Relation candidates", len(relations))
 metric_cols[3].metric("Validated relations", relation_validated)
 
+def render_page_controls(total: int, kind: str) -> tuple[int, int]:
+    """Render prev/next controls and return (start, end) slice indices for the current page."""
+    total_pages = max(1, math.ceil(total / PAGE_SIZE))
+    page_key = f"page_{kind}"
+    if page_key not in st.session_state:
+        st.session_state[page_key] = 0
+    page = st.session_state[page_key]
+
+    col_prev, col_info, col_next = st.columns([1, 4, 1])
+    with col_prev:
+        if st.button("← Prev", key=f"prev_{kind}", disabled=page == 0):
+            st.session_state[page_key] = page - 1
+            st.rerun()
+    with col_info:
+        st.caption(f"Page {page + 1} / {total_pages}  ·  {total} records total")
+    with col_next:
+        if st.button("Next →", key=f"next_{kind}", disabled=page >= total_pages - 1):
+            st.session_state[page_key] = page + 1
+            st.rerun()
+
+    start = page * PAGE_SIZE
+    end = min(start + PAGE_SIZE, total)
+    return start, end
+
+
 tab_entities, tab_relations = st.tabs(["Entities", "Relations"])
 
 with tab_entities:
     st.subheader("Entities")
-    entity_frame = editable_frame(entities, "entity")
-    if st.button("Save entity validations", type="primary", disabled=entity_frame.empty):
-        path = store.save_entities(records_from_frame(entity_frame))
-        st.success(f"Saved {path}")
+    if entities:
+        e_start, e_end = render_page_controls(len(entities), "entity")
+        entity_frame = editable_frame(entities[e_start:e_end], "entity")
+        if st.button("Save entity validations", type="primary", disabled=entity_frame.empty):
+            merged = entities[:e_start] + records_from_frame(entity_frame) + entities[e_end:]
+            path = store.save_entities(merged)
+            st.success(f"Saved {path}")
+    else:
+        st.info("No entity candidates found.")
 
 with tab_relations:
     st.subheader("Relations")
-    relation_frame = editable_frame(relations, "relation")
-    if st.button("Save relation validations", type="primary", disabled=relation_frame.empty):
-        path = store.save_relations(records_from_frame(relation_frame))
-        st.success(f"Saved {path}")
+    if relations:
+        r_start, r_end = render_page_controls(len(relations), "relation")
+        relation_frame = editable_frame(relations[r_start:r_end], "relation")
+        if st.button("Save relation validations", type="primary", disabled=relation_frame.empty):
+            merged = relations[:r_start] + records_from_frame(relation_frame) + relations[r_end:]
+            path = store.save_relations(merged)
+            st.success(f"Saved {path}")
+    else:
+        st.info("No relation candidates found.")
 
 with st.expander("Write policy"):
     st.write(

@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+import json
 import os
+import urllib.error
+import urllib.request
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -10,8 +13,9 @@ from typing import Any
 from app.services.qdrant_service import DOCUMENT_COLLECTION, QdrantService
 
 
-AUDIT_DIR = Path(os.getenv("FOUNDERGRAPH_AUDIT_DIR", "vault/audits"))
-PROMPT_DIR = Path("app/prompts")
+_PROJECT_ROOT = Path(__file__).resolve().parents[2]
+PROMPT_DIR = _PROJECT_ROOT / "app" / "prompts"
+AUDIT_DIR = Path(os.getenv("FOUNDERGRAPH_AUDIT_DIR", str(_PROJECT_ROOT / "vault" / "audits")))
 
 
 def _read_prompt(name: str) -> str:
@@ -27,17 +31,15 @@ def _neo4j_read(cypher: str, parameters: dict[str, Any] | None = None) -> dict[s
     password = os.getenv("NEO4J_PASSWORD")
     if not uri or not password:
         return {"available": False, "error": "NEO4J_URI/NEO4J_PASSWORD not configured", "rows": []}
-    if not cypher.lstrip().upper().startswith(("MATCH", "CALL DB.", "RETURN", "WITH")):
-        return {"available": False, "error": "Only read-only Cypher is allowed", "rows": []}
 
     try:
-        from neo4j import GraphDatabase
+        from neo4j import GraphDatabase, READ_ACCESS
     except ImportError:
         return {"available": False, "error": "neo4j package is not installed", "rows": []}
 
     try:
         driver = GraphDatabase.driver(uri, auth=(user, password))
-        with driver.session() as session:
+        with driver.session(default_access_mode=READ_ACCESS) as session:
             rows = [record.data() for record in session.run(cypher, parameters or {})]
         driver.close()
         return {"available": True, "rows": rows}
@@ -46,21 +48,18 @@ def _neo4j_read(cypher: str, parameters: dict[str, Any] | None = None) -> dict[s
 
 
 def _ollama_generate(prompt: str) -> dict[str, Any]:
+    url = f"{os.getenv('OLLAMA_URL', 'http://localhost:11434').rstrip('/')}/api/generate"
+    body = json.dumps({
+        "model": os.getenv("OLLAMA_SYNTH_MODEL", os.getenv("OLLAMA_MODEL", "llama3.1")),
+        "prompt": prompt,
+        "stream": False,
+    }).encode("utf-8")
+    request = urllib.request.Request(url, data=body, method="POST", headers={"Content-Type": "application/json"})
     try:
-        from app.services.qdrant_service import _json_request
-
-        response = _json_request(
-            "POST",
-            f"{os.getenv('OLLAMA_URL', 'http://localhost:11434').rstrip('/')}/api/generate",
-            {
-                "model": os.getenv("OLLAMA_SYNTH_MODEL", os.getenv("OLLAMA_MODEL", "llama3.1")),
-                "prompt": prompt,
-                "stream": False,
-            },
-            timeout=90,
-        )
+        with urllib.request.urlopen(request, timeout=90) as resp:
+            response = json.loads(resp.read().decode("utf-8"))
         return {"available": True, "text": str(response.get("response", "")).strip()}
-    except Exception as exc:
+    except (urllib.error.URLError, TimeoutError, OSError, json.JSONDecodeError) as exc:
         return {"available": False, "error": str(exc), "text": ""}
 
 
