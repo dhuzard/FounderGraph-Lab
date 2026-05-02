@@ -21,45 +21,18 @@ Legend: ✅ done · 🔴 high · 🟡 medium · 🟢 low
 - ✅ Build `scripts/init_ontology.py` HITL CLI (`make init`)
 - ✅ Add `make init` to `Makefile`
 - ✅ Add `tests/test_ontology_service.py` (9 tests)
+- ✅ Fix prompt placeholders — `_build_prompt` substitutes `{{document_text}}`, `{{document_metadata}}`, `{{entities_json}}`, `{{entity_types}}`; `extract_entities.md` uses `{{entity_types}}` generated live from `OntologyConfig`
+- ✅ Fix `save_json` atomic — `validation_store.py` now uses `.tmp` → rename
+- ✅ Fix CWD-relative paths in `file_store.py` — imports anchored paths from `app.config`; `append_document_record` atomic; dead fallback `SourceDocument` dataclass and `_compatible_payload` removed
+- ✅ Fix CWD-relative paths in `export_service.py` — imports from `app.config`; `export_all` raises `ValueError` instead of silently serving fake sample data
+- ✅ Fix null node ID in graph visualizer — skips nodes without `id`
+- ✅ Fix relation staging silent drop — `_write_candidates` generates compound IDs (`src:pred:tgt`) for id-less relations
+- ✅ Create `app/services/ontology_validator.py` — deterministic pre-validation gate; violations written atomically to `data/staging/shacl_violations.json`; integrated into `extract_to_staging`
+- ✅ Add `tests/test_ontology_validator.py` (11 tests); 41 tests total
 
 ---
 
 ## Bugs
-
-- 🔴 **Prompt placeholders never substituted** — `_build_prompt` in `entity_extractor.py:257`
-  appends context as trailing `INPUT_JSON:` JSON but never replaces `{{document_text}}`,
-  `{{document_metadata}}`, `{{entities_json}}` in the prompt templates. The LLM sees
-  unfilled `{{...}}` markers on every call. Either do the substitution or remove the
-  dead placeholders from the prompt files.
-
-- 🔴 **`save_json` not atomic** — `validation_store.py:41` writes directly to
-  `validated_entities.json` / `validated_relations.json` without `.tmp` → rename.
-  A crash mid-write corrupts the only gate between staging and Neo4j. Apply the
-  same atomic-write pattern used in `entity_extractor.py`.
-
-- 🔴 **CWD-relative paths in `file_store.py` and `export_service.py`** — `BASE_DATA_DIR`,
-  `VAULT_DOCUMENTS_DIR`, `EXPORT_DIR`, `AUDIT_DIR`, `VALIDATED_ENTITIES_PATH` all use
-  relative string defaults. Use `Path(__file__).resolve().parents[2]` as the anchor,
-  same fix applied to `agents.py`.
-
-- 🔴 **Export silently falls back to sample data** — `export_service.py:62`: when no
-  validated knowledge exists, `export_all` silently substitutes the fictional Metadatapp
-  sample graph with no warning. A user gets a ZIP of fake data. Drop the fallback or
-  raise a clear error.
-
-- 🔴 **Extraction prompt not regenerated from ontology YAML** — `extract_entities.md`
-  has a hardcoded list of 18 entity types. Custom types added via `make init` are written
-  to the YAML and enforced in Neo4j, but the LLM will never extract them because the
-  prompt still lists only the originals. Generate the allowed-types section of the
-  extraction prompt dynamically from `OntologyConfig` at extraction time.
-
-- 🟡 **`append_document_record` not atomic** — `file_store.py:82` reads, de-dupes, and
-  writes `documents.json` as three separate operations. Two concurrent uploads can
-  overwrite each other's entry. Use `.tmp` → rename.
-
-- 🟡 **Null node ID in graph visualizer** — `graph_visualizer.py:22`: `str(node.get("id"))`
-  returns `"None"` when `id` is absent. All such nodes collide at one key in PyVis,
-  silently dropping them. Guard with `if not node.get("id"): continue`.
 
 ---
 
