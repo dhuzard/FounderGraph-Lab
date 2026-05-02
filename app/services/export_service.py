@@ -11,10 +11,19 @@ from pathlib import Path
 from typing import Any
 
 
-EXPORT_DIR = Path(os.getenv("FOUNDERGRAPH_EXPORT_DIR", "data/exports"))
-AUDIT_DIR = Path(os.getenv("FOUNDERGRAPH_AUDIT_DIR", "vault/audits"))
-VALIDATED_ENTITIES_PATH = Path(os.getenv("FOUNDERGRAPH_VALIDATED_ENTITIES", "data/knowledge/validated_entities.json"))
-VALIDATED_RELATIONS_PATH = Path(os.getenv("FOUNDERGRAPH_VALIDATED_RELATIONS", "data/knowledge/validated_relations.json"))
+_PROJECT_ROOT = Path(__file__).resolve().parents[2]
+
+try:
+    from app.config import EXPORTS_DIR as EXPORT_DIR, VAULT_AUDITS_DIR as AUDIT_DIR
+    from app.config import VALIDATED_ENTITIES_JSON as VALIDATED_ENTITIES_PATH
+    from app.config import VALIDATED_RELATIONS_JSON as VALIDATED_RELATIONS_PATH
+except ImportError:
+    _data = Path(os.getenv("FOUNDERGRAPH_DATA_DIR", str(_PROJECT_ROOT / "data")))
+    _vault = Path(os.getenv("FOUNDERGRAPH_VAULT_DIR", str(_PROJECT_ROOT / "vault")))
+    EXPORT_DIR = _data / "exports"
+    AUDIT_DIR = _vault / "audits"
+    VALIDATED_ENTITIES_PATH = _data / "knowledge" / "validated_entities.json"
+    VALIDATED_RELATIONS_PATH = _data / "knowledge" / "validated_relations.json"
 
 
 def _timestamp() -> str:
@@ -187,7 +196,7 @@ def risk_register_rows(graph: dict[str, Any]) -> list[dict[str, Any]]:
 def export_all(graph: dict[str, Any] | None = None, export_dir: str | Path = EXPORT_DIR) -> dict[str, Path]:
     graph = graph or load_validated_graph()
     if not graph.get("nodes") and not graph.get("edges"):
-        graph = _load_sample_graph()
+        raise ValueError("No validated knowledge to export. Validate entities and relations before exporting.")
     base = Path(export_dir) / _timestamp()
     base.mkdir(parents=True, exist_ok=True)
 

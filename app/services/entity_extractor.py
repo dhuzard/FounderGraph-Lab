@@ -27,6 +27,13 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 PROMPT_DIR = PROJECT_ROOT / "app" / "prompts"
 DEFAULT_STAGING_DIR = PROJECT_ROOT / "data" / "staging"
 
+_DEFAULT_ENTITY_TYPES = (
+    "- CustomerSegment\n- Problem\n- ValueProposition\n- ProductFeature\n"
+    "- Assumption\n- Evidence\n- Risk\n- Experiment\n- Decision\n- Milestone\n"
+    "- GrantCall\n- Investor\n- Partner\n- Competitor\n- IPAsset\n"
+    "- RegulatoryConstraint\n- TechnicalDependency\n- FinancialHypothesis"
+)
+
 
 class DocumentClassification(BaseModel):
     """Classification gate for startup document processing."""
@@ -160,6 +167,15 @@ def _json_for_prompt(value: Any) -> str:
     return json.dumps(value, ensure_ascii=True, sort_keys=True)
 
 
+def _ensure_relation_id(r: dict[str, Any]) -> dict[str, Any]:
+    if r.get("id"):
+        return r
+    src = r.get("source_entity_id") or r.get("subject_temporary_id") or ""
+    pred = r.get("predicate") or r.get("type") or "RELATED_TO"
+    tgt = r.get("target_entity_id") or r.get("object_temporary_id") or ""
+    return {**r, "id": f"{src}:{pred}:{tgt}"}
+
+
 def _coerce_items(payload: Any, key: str) -> list[Any]:
     if isinstance(payload, list):
         return payload
@@ -231,16 +247,43 @@ class EntityExtractor:
         text: str,
         metadata: dict[str, Any] | None = None,
     ) -> ExtractionResult:
-        """Run classification and extraction, then atomically stage JSON files."""
-
+        """Run classification + extraction, validate against ontology, then stage."""
         classification = self.classify_document(text, metadata)
         entities = self.extract_entities(text, metadata)
         relations = self.extract_relations(text, entities, metadata)
-        self._write_candidates(entities, relations)
+
+        try:
+            from app.services.ontology_validator import OntologyValidator
+            report = OntologyValidator().validate(entities, relations)
+            # Stage only ontologically valid candidates; violations are logged separately.
+            valid_eids = {
+                str(e.get("id") or e.get("temporary_id"))
+                for e in report.valid_entities
+            }
+            valid_rkeys = {
+                (
+                    str(r.get("source_entity_id") or r.get("subject_temporary_id") or ""),
+                    str(r.get("predicate") or r.get("type") or ""),
+                    str(r.get("target_entity_id") or r.get("object_temporary_id") or ""),
+                )
+                for r in report.valid_relations
+            }
+            staged_entities = [e for e in entities if str(e.id or e.temporary_id) in valid_eids]
+            staged_relations = [
+                r for r in relations
+                if (str(r.source_entity_id), str(r.predicate or r.type), str(r.target_entity_id)) in valid_rkeys
+            ]
+            self._write_candidates(staged_entities, staged_relations)
+        except Exception:
+            # Validator failure must never block staging; fall back to writing all candidates.
+            staged_entities = entities
+            staged_relations = relations
+            self._write_candidates(entities, relations)
+
         return ExtractionResult(
             classification=classification,
-            entities=entities,
-            relations=relations,
+            entities=staged_entities,
+            relations=staged_relations,
             wrote_files=True,
         )
 
@@ -251,10 +294,31 @@ class EntityExtractor:
         metadata: dict[str, Any],
         extra_context: dict[str, Any] | None = None,
     ) -> str:
-        context = {"metadata": metadata, "document_text": text}
-        if extra_context:
-            context.update(extra_context)
-        return f"{_load_prompt(prompt_name).strip()}\n\nINPUT_JSON:\n{_json_for_prompt(context)}"
+        template = _load_prompt(prompt_name).strip()
+        substitutions = {
+            "{{document_text}}": text,
+            "{{document_metadata}}": _json_for_prompt(metadata),
+            "{{entities_json}}": _json_for_prompt((extra_context or {}).get("candidate_entities", [])),
+            "{{entity_types}}": self._entity_types_block(),
+        }
+        result = template
+        for placeholder, value in substitutions.items():
+            result = result.replace(placeholder, value)
+        return result
+
+    def _entity_types_block(self) -> str:
+        try:
+            from app.services.ontology_service import load_ontology
+            config = load_ontology()
+            if config.entity_classes:
+                lines = []
+                for name, cls in config.entity_classes.items():
+                    suffix = f": {cls.description}" if cls.description else ""
+                    lines.append(f"- {name}{suffix}")
+                return "\n".join(lines)
+        except Exception:
+            pass
+        return _DEFAULT_ENTITY_TYPES
 
     def _validate_entities(self, items: list[Any]) -> list[CandidateKnowledgeEntity]:
         staged: list[CandidateKnowledgeEntity] = []
@@ -289,7 +353,7 @@ class EntityExtractor:
         )
         self._merge_and_write(
             self.staging_dir / "candidate_relations.json",
-            [_dump_model(relation) for relation in relations],
+            [_ensure_relation_id(r) for r in (_dump_model(rel) for rel in relations)],
             merge_key="id",
         )
 
