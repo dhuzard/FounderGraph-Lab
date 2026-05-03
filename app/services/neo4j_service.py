@@ -8,6 +8,8 @@ import re
 from dataclasses import dataclass
 from typing import Any, Protocol
 
+from app.services.ontology_validator import get_ontology
+
 
 SAFE_TOKEN = re.compile(r"^[A-Z][A-Z0-9_]*$")
 SAFE_LABEL = re.compile(r"^[A-Z][A-Za-z0-9_]*$")
@@ -118,8 +120,17 @@ class Neo4jService:
     ) -> None:
         self.config = config or Neo4jConfig.from_env()
         self.driver = driver or create_driver(self.config)
-        self.allowed_labels = allowed_labels or DEFAULT_ALLOWED_LABELS
-        self.allowed_relationships = allowed_relationships or DEFAULT_ALLOWED_RELATIONSHIPS
+        # Derive allowed sets from the ontology YAML when not overridden
+        # explicitly (e.g. in tests).  Fall back to the hard-coded defaults if
+        # the ontology produces an empty set (missing YAML, parse error, etc.).
+        ontology = get_ontology()
+        ontology_labels = ontology.allowed_labels or DEFAULT_ALLOWED_LABELS
+        ontology_rels = ontology.allowed_relationships or DEFAULT_ALLOWED_RELATIONSHIPS
+        self.allowed_labels = allowed_labels if allowed_labels is not None else ontology_labels
+        self.allowed_relationships = (
+            allowed_relationships if allowed_relationships is not None else ontology_rels
+        )
+        self.ontology = ontology
 
     def close(self) -> None:
         self.driver.close()
@@ -206,6 +217,12 @@ class Neo4jService:
         if not source_id or not target_id:
             raise Neo4jServiceError("Validated relation requires source and target entity ids")
         rel_type = self._safe_relationship(relation.get("predicate") or relation.get("type") or relation.get("relation") or "RELATED_TO")
+        source_type = relation.get("subject_type") or relation.get("source_type")
+        target_type = relation.get("object_type") or relation.get("target_type")
+        if not self.ontology.validate_relation(rel_type, source_type, target_type):
+            raise Neo4jServiceError(
+                f"Relation {source_type} -{rel_type}-> {target_type} violates ontology domain/range constraints"
+            )
         relation_id = relation.get("id") or f"{source_id}:{rel_type}:{target_id}"
         params = {
             "id": str(relation_id),
