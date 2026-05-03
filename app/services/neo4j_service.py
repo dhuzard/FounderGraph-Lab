@@ -262,9 +262,9 @@ class Neo4jService:
             "display_label": entity.get("label") or entity.get("name", ""),
             "type": entity.get("type", label),
             "description": entity.get("description", ""),
-            "confidence": entity.get("confidence"),
             "evidence_grade": entity.get("evidence_grade"),
             "reviewer_confidence": entity.get("reviewer_confidence"),
+            "reviewer_comment": entity.get("reviewer_comment"),
             "source_snippet": entity.get("source_snippet", ""),
             "source_document_id": entity.get("source_document_id"),
             "source_file": entity.get("source_file"),
@@ -281,9 +281,9 @@ class Neo4jService:
             e.label = $display_label,
             e.type = $type,
             e.description = $description,
-            e.confidence = $confidence,
             e.evidence_grade = $evidence_grade,
             e.reviewer_confidence = $reviewer_confidence,
+            e.reviewer_comment = $reviewer_comment,
             e.source_snippet = $source_snippet,
             e.source_document_id = $source_document_id,
             e.source_file = $source_file,
@@ -345,8 +345,8 @@ class Neo4jService:
             "source_file": relation.get("source_file"),
             "provenance_json": json_property(relation.get("provenance", {})),
             "metadata_json": json_property(relation.get("metadata", {})),
-            "confidence": relation.get("confidence"),
             "evidence_grade": relation.get("evidence_grade"),
+            "reviewer_comment": relation.get("reviewer_comment"),
             "ontology_version": self.ontology.version,
             "status": validation_status(relation),
         }
@@ -359,8 +359,8 @@ class Neo4jService:
             r.source_file = $source_file,
             r.provenance_json = $provenance_json,
             r.metadata_json = $metadata_json,
-            r.confidence = $confidence,
             r.evidence_grade = $evidence_grade,
+            r.reviewer_comment = $reviewer_comment,
             r.ontology_version = $ontology_version,
             r.status = $status,
             r.updated_at = datetime()
@@ -405,7 +405,10 @@ class Neo4jService:
         query = """
         MATCH (e:Entity)
         RETURN e.id AS id, e.label AS label, e.name AS name, e.type AS type,
-               e.description AS description, e.confidence AS confidence,
+               e.description AS description,
+               e.evidence_grade AS evidence_grade,
+               e.reviewer_confidence AS reviewer_confidence,
+               e.reviewer_comment AS reviewer_comment,
                e.validation_status AS validation_status, e.source_file AS source_file,
                e.source_snippet AS source_snippet
         LIMIT $limit
@@ -420,8 +423,10 @@ class Neo4jService:
         MATCH (a:Entity:Assumption)
         WHERE NOT (a)-[:SUPPORTED_BY]->(:Entity:Evidence)
         RETURN a.id AS id, a.label AS label, a.description AS description,
-               a.confidence AS confidence, a.source_file AS source_file,
-               a.source_snippet AS source_snippet
+               a.evidence_grade AS evidence_grade,
+               a.reviewer_confidence AS reviewer_confidence,
+               a.reviewer_comment AS reviewer_comment,
+               a.source_file AS source_file, a.source_snippet AS source_snippet
         """
         return self._rows(query, {})
 

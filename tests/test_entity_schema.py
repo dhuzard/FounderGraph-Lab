@@ -6,6 +6,7 @@ from app.services.entity_extractor import (
     CandidateKnowledgeEntity,
     CandidateKnowledgeRelation,
     EntityExtractor,
+    _dump_model,
     stable_entity_id,
 )
 from app.services.llm_service import LLMInvalidJSONError
@@ -208,4 +209,20 @@ def test_source_document_id_populated_in_staging(tmp_path):
     assert entities[0]["source_document_id"] == "doc-42", (
         "source_document_id must be written to staging so Neo4j can create "
         "the Document→Entity MENTIONS link at write time"
+    )
+
+
+def test_reviewer_comment_on_relation_model():
+    """CandidateKnowledgeRelation must accept reviewer_comment and preserve it
+    through _dump_model so the validation UI can save reviewer notes on relations."""
+    rel = CandidateKnowledgeRelation.model_validate({
+        "source_entity_id": "e1",
+        "target_entity_id": "e2",
+        "type": "RELATED_TO",
+        "reviewer_comment": "Verified against the pitch deck transcript.",
+    })
+    assert rel.reviewer_comment == "Verified against the pitch deck transcript."
+    dumped = _dump_model(rel)
+    assert dumped.get("reviewer_comment") == "Verified against the pitch deck transcript.", (
+        "reviewer_comment must survive _dump_model so it is preserved in staging JSON"
     )

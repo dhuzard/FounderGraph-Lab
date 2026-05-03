@@ -172,6 +172,8 @@ class CandidateKnowledgeRelation(BaseModel):
     confidence: float | str | None = None
     # How directly the document text supports this relation.
     evidence_grade: str | None = None
+    # Set by the human reviewer during validation.
+    reviewer_comment: str | None = None
     properties: dict[str, Any] = Field(default_factory=dict)
 
     @model_validator(mode="before")

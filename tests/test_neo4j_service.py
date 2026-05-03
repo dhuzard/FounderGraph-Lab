@@ -326,3 +326,108 @@ def test_upsert_validated_knowledge_accepts_batch_relation_endpoints():
 
     # Must not raise: both endpoints are in the same batch even though the DB is empty.
     graph.upsert_validated_knowledge(entities, relations)
+
+
+# ---------------------------------------------------------------------------
+# Reviewer comment persistence (Patch Set 2)
+# ---------------------------------------------------------------------------
+
+def test_reviewer_comment_in_entity_cypher():
+    """_entity_ops must include reviewer_comment in params and the Cypher SET clause."""
+    graph = service()
+    entity = {
+        "id": "e1",
+        "name": "Test Entity",
+        "type": "Company",
+        "label": "Company",
+        "status": "validated",
+        "validation_status": "validated",
+        "reviewer_comment": "Confirmed via founder interview.",
+    }
+    ops = graph._entity_ops(entity)
+    query, params = ops[0]
+
+    assert "reviewer_comment" in params
+    assert params["reviewer_comment"] == "Confirmed via founder interview."
+    assert "e.reviewer_comment = $reviewer_comment" in query
+
+
+def test_reviewer_comment_in_relation_cypher():
+    """_relation_ops must include reviewer_comment in params and the Cypher SET clause."""
+    graph = Neo4jService(
+        driver=FakeDriver(),
+        allowed_labels={"Entity", "Company"},
+        allowed_relationships={"RELATED_TO"},
+    )
+    relation = {
+        "source_entity_id": "e1",
+        "target_entity_id": "e2",
+        "type": "RELATED_TO",
+        "status": "validated",
+        "validation_status": "validated",
+        "reviewer_comment": "Directional correctness verified manually.",
+    }
+    ops = graph._relation_ops(relation)
+    query, params = ops[0]
+
+    assert "reviewer_comment" in params
+    assert params["reviewer_comment"] == "Directional correctness verified manually."
+    assert "r.reviewer_comment = $reviewer_comment" in query
+
+
+# ---------------------------------------------------------------------------
+# Canonical evidence fields (Patch Set 2)
+# ---------------------------------------------------------------------------
+
+def test_numeric_llm_confidence_not_persisted_as_confidence():
+    """LLM-emitted confidence (numeric or string) must not be stored as e.confidence.
+    evidence_grade is the canonical provenance field; confidence is quarantined."""
+    graph = service()
+    entity = {
+        "id": "e1",
+        "name": "Test",
+        "type": "Company",
+        "label": "Company",
+        "status": "validated",
+        "validation_status": "validated",
+        "confidence": "medium",   # old LLM string confidence
+        "evidence_grade": "paraphrase",
+    }
+    ops = graph._entity_ops(entity)
+    _, params = ops[0]
+
+    assert "confidence" not in params, (
+        "LLM confidence must not be persisted to Neo4j; use evidence_grade instead"
+    )
+    assert params["evidence_grade"] == "paraphrase"
+
+
+def test_get_all_entities_returns_evidence_fields_not_confidence():
+    """get_all_entities must query evidence_grade and reviewer_confidence,
+    not the stale confidence property."""
+    graph = service()
+    graph.get_all_entities()
+
+    queries = [q for q, _ in graph.driver.calls if isinstance(q, str) and "MATCH (e:Entity)" in q]
+    assert queries, "get_all_entities should execute a Cypher query"
+    query = queries[0]
+
+    assert "evidence_grade" in query
+    assert "reviewer_confidence" in query
+    assert "reviewer_comment" in query
+    assert "e.confidence AS confidence" not in query
+
+
+def test_get_unsupported_assumptions_returns_evidence_fields():
+    """get_unsupported_assumptions must return evidence_grade and reviewer_confidence,
+    not the stale confidence property."""
+    graph = service()
+    graph.get_unsupported_assumptions()
+
+    queries = [q for q, _ in graph.driver.calls if isinstance(q, str) and "Assumption" in q]
+    assert queries, "get_unsupported_assumptions should execute a Cypher query"
+    query = queries[0]
+
+    assert "evidence_grade" in query
+    assert "reviewer_confidence" in query
+    assert "a.confidence AS confidence" not in query
