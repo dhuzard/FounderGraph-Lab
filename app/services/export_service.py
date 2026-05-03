@@ -77,6 +77,41 @@ def load_validated_graph() -> dict[str, Any]:
     return {"nodes": nodes, "edges": edges}
 
 
+def create_manifest(
+    graph: dict[str, Any],
+    export_id: str,
+    warnings: list[str],
+) -> dict[str, Any]:
+    """Build a manifest dict describing the export snapshot."""
+    try:
+        from app.services.ontology_validator import get_ontology
+        ontology_version = get_ontology().version
+    except Exception:  # noqa: BLE001
+        ontology_version = "unknown"
+
+    node_types: dict[str, int] = {}
+    for node in graph.get("nodes", []):
+        t = str(node.get("type", "Entity"))
+        node_types[t] = node_types.get(t, 0) + 1
+
+    rel_types: dict[str, int] = {}
+    for edge in graph.get("edges", []):
+        t = str(edge.get("relationship") or edge.get("type", "RELATED_TO"))
+        rel_types[t] = rel_types.get(t, 0) + 1
+
+    return {
+        "export_id": export_id,
+        "exported_at": datetime.now(timezone.utc).isoformat(),
+        "ontology_version": ontology_version,
+        "entity_count": len(graph.get("nodes", [])),
+        "relation_count": len(graph.get("edges", [])),
+        "entity_types": node_types,
+        "relation_types": rel_types,
+        "warnings": warnings,
+        "generator": "FounderGraph Lab",
+    }
+
+
 def _write_json(path: Path, data: Any) -> Path:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(data, indent=2, sort_keys=True), encoding="utf-8")
@@ -93,28 +128,54 @@ def _write_csv(path: Path, rows: list[dict[str, Any]], fieldnames: list[str]) ->
 
 
 def graph_to_jsonld(graph: dict[str, Any]) -> dict[str, Any]:
+    """Serialise the graph as JSON-LD with a proper @context.
+
+    Nodes are typed with fg:<EntityType>; edges use fg:<PREDICATE> as the
+    predicate IRI.  source/target are @id references so triple-stores can
+    load the file directly.
+    """
     context = {
+        "@vocab": "https://foundergraph.local/ontology#",
         "fg": "https://foundergraph.local/ontology#",
+        "schema": "https://schema.org/",
+        # Node properties
         "name": "fg:name",
-        "type": "@type",
-        "source": "fg:source",
-        "confidence": "fg:confidence",
+        "description": "fg:description",
+        "source_snippet": "fg:sourceSnippet",
+        "source_document_id": {"@id": "fg:sourceDocument", "@type": "@id"},
+        "evidence_grade": "fg:evidenceGrade",
+        "reviewer_confidence": "fg:reviewerConfidence",
+        "ontology_version": "fg:ontologyVersion",
+        # Edge properties
+        "fg:sourceEntity": {"@type": "@id"},
+        "fg:targetEntity": {"@type": "@id"},
+        "relationship": "fg:relationshipType",
     }
     nodes = []
     for node in graph.get("nodes", []):
-        item = {"@id": node.get("id"), "type": node.get("type", "Entity")}
-        item.update({key: value for key, value in node.items() if key not in {"id", "type"}})
+        item: dict[str, Any] = {
+            "@id": f"fg:{node.get('id')}",
+            "@type": f"fg:{node.get('type', 'Entity')}",
+        }
+        for key, value in node.items():
+            if key not in {"id", "type"} and value not in (None, "", []):
+                item[key] = value
         nodes.append(item)
     edges = []
     for edge in graph.get("edges", []):
-        edges.append(
-            {
-                "@id": edge.get("id") or f"{edge.get('source')}:{edge.get('relationship')}:{edge.get('target')}",
-                "type": edge.get("relationship", "RELATED_TO"),
-                "source": {"@id": edge.get("source")},
-                "target": {"@id": edge.get("target")},
-            }
-        )
+        rel = edge.get("relationship") or edge.get("type", "RELATED_TO")
+        edge_id = edge.get("id") or f"{edge.get('source')}:{rel}:{edge.get('target')}"
+        item = {
+            "@id": f"fg:rel:{edge_id}",
+            "@type": f"fg:{rel}",
+            "fg:sourceEntity": {"@id": f"fg:{edge.get('source')}"},
+            "fg:targetEntity": {"@id": f"fg:{edge.get('target')}"},
+        }
+        if edge.get("source_snippet"):
+            item["source_snippet"] = edge["source_snippet"]
+        if edge.get("evidence_grade"):
+            item["evidence_grade"] = edge["evidence_grade"]
+        edges.append(item)
     return {"@context": context, "@graph": nodes + edges}
 
 
@@ -186,10 +247,14 @@ def export_all(graph: dict[str, Any] | None = None, export_dir: str | Path = EXP
             "No validated knowledge found. "
             "Validate entities and relations on the Validate Knowledge page before exporting."
         )
-    base = Path(export_dir) / _timestamp()
+    export_id = _timestamp()
+    base = Path(export_dir) / export_id
     base.mkdir(parents=True, exist_ok=True)
 
+    manifest = create_manifest(graph, export_id, warnings)
+
     paths: dict[str, Any] = {
+        "manifest": _write_json(base / "manifest.json", manifest),
         "graph_json": _write_json(base / "graph.json", graph),
         "graph_jsonld": _write_json(base / "graph.jsonld", graph_to_jsonld(graph)),
         "assumptions_csv": _write_csv(
