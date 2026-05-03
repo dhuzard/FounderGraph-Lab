@@ -21,12 +21,6 @@ def _timestamp() -> str:
     return datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
 
 
-def _load_sample_graph(root: Path = Path(".")) -> dict[str, Any]:
-    graph_path = root / "sample_data" / "metadatapp" / "graph.json"
-    if graph_path.exists():
-        return json.loads(graph_path.read_text(encoding="utf-8"))
-    return {"nodes": [], "edges": []}
-
 
 def _load_json_list(path: Path) -> list[dict[str, Any]]:
     if not path.exists():
@@ -184,14 +178,18 @@ def risk_register_rows(graph: dict[str, Any]) -> list[dict[str, Any]]:
     return rows
 
 
-def export_all(graph: dict[str, Any] | None = None, export_dir: str | Path = EXPORT_DIR) -> dict[str, Path]:
+def export_all(graph: dict[str, Any] | None = None, export_dir: str | Path = EXPORT_DIR) -> dict[str, Any]:
     graph = graph or load_validated_graph()
+    warnings: list[str] = []
     if not graph.get("nodes") and not graph.get("edges"):
-        graph = _load_sample_graph()
+        warnings.append(
+            "No validated knowledge found. "
+            "Validate entities and relations on the Validate Knowledge page before exporting."
+        )
     base = Path(export_dir) / _timestamp()
     base.mkdir(parents=True, exist_ok=True)
 
-    paths: dict[str, Path] = {
+    paths: dict[str, Any] = {
         "graph_json": _write_json(base / "graph.json", graph),
         "graph_jsonld": _write_json(base / "graph.jsonld", graph_to_jsonld(graph)),
         "assumptions_csv": _write_csv(
@@ -223,4 +221,5 @@ def export_all(graph: dict[str, Any] | None = None, export_dir: str | Path = EXP
             if file_path.is_file():
                 archive.write(file_path, file_path.relative_to(base))
     paths["zip"] = zip_path
+    paths["warnings"] = warnings
     return paths
