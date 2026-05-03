@@ -99,7 +99,7 @@ class CandidateKnowledgeEntity(BaseModel):
     aliases: list[str] = Field(default_factory=list)
     evidence: str | None = None
     source_snippet: str | None = None
-    source_document: str | None = None
+    source_document_id: str | None = None
     # Deprecated: LLM-emitted float/string confidence — not a calibrated probability.
     confidence: float | str | None = None
     # How directly the document text supports this entity.
@@ -167,7 +167,7 @@ class CandidateKnowledgeRelation(BaseModel):
     description: str | None = None
     evidence: str | None = None
     source_snippet: str | None = None
-    source_document: str | None = None
+    source_document_id: str | None = None
     # Deprecated: LLM-emitted float/string confidence — not a calibrated probability.
     confidence: float | str | None = None
     # How directly the document text supports this relation.
@@ -318,6 +318,7 @@ class EntityExtractor:
             or ""
         )
         # Build temporary_id → stable UUIDv5 mapping so relations can be updated.
+        stable_doc_id = doc_id or None
         tmp_to_stable: dict[str, str] = {}
         for entity in entities:
             sid = stable_entity_id(doc_id, entity.label or "", entity.type)
@@ -325,6 +326,7 @@ class EntityExtractor:
             tmp_to_stable[old_tmp] = sid
             entity.id = sid
             entity.temporary_id = sid
+            entity.source_document_id = stable_doc_id
 
         relations = self.extract_relations(text, entities, meta)
         for relation in relations:
@@ -334,6 +336,7 @@ class EntityExtractor:
             if relation.target_entity_id in tmp_to_stable:
                 relation.target_entity_id = tmp_to_stable[relation.target_entity_id]
                 relation.object_temporary_id = relation.target_entity_id
+            relation.source_document_id = stable_doc_id
 
         self._write_candidates(entities, relations)
         return ExtractionResult(

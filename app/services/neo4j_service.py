@@ -161,13 +161,19 @@ class Neo4jService:
             self._run(query, params)
 
     def upsert_relation(self, relation: dict[str, Any]) -> None:
-        for query, params in self._relation_ops(relation):
+        # Validate whitelist and domain/range first (pure Python, no DB access).
+        ops = self._relation_ops(relation)
+        # Then verify both endpoint entities exist in the graph.
+        self._pre_check_relation_endpoints(relation)
+        for query, params in ops:
             self._run(query, params)
 
     def link_document_entity(self, document_id: str, entity_id: str, snippet: str = "") -> None:
         params = {"document_id": document_id, "entity_id": entity_id, "source_snippet": snippet}
         query = """
-        MATCH (d:Document {id: $document_id})
+        MERGE (d:Document {id: $document_id})
+        ON CREATE SET d.created_at = datetime(), d.imported_at = datetime()
+        WITH d
         MATCH (e:Entity {id: $entity_id})
         MERGE (d)-[r:MENTIONS {entity_id: $entity_id}]->(e)
         SET r.source_snippet = $source_snippet,
@@ -183,17 +189,34 @@ class Neo4jService:
     ) -> None:
         """Write all documents, entities, and relations in a single transaction.
 
-        All validation (whitelist checks, domain/range) runs before any write
-        so that the transaction contains no surprises.  A failure rolls back
-        every write in the batch, preventing partial graph states.
+        All validation (whitelist checks, domain/range, endpoint existence) runs
+        before any write so that the transaction contains no surprises.  A failure
+        rolls back every write in the batch, preventing partial graph states.
+
+        Relations whose endpoints are being written in the same batch are trusted
+        without a DB round-trip.  Endpoints NOT in the batch must already exist as
+        validated Entity nodes; a missing endpoint raises Neo4jServiceError before
+        the transaction begins.
         """
         ops: list[tuple[str, dict[str, Any]]] = []
         for document in documents or []:
             ops.extend(self._document_ops(document))
         for entity in entities:
             ops.extend(self._entity_ops(entity))
+
+        # IDs being written in this batch — relations may safely reference them.
+        batch_ids = {str(e.get("id", "")) for e in entities if e.get("id")}
+
+        # Build and validate all relation ops (whitelist + domain/range) before
+        # any DB access, so structural errors surface immediately.
+        validated_relation_ops = [self._relation_ops(r) for r in relations]
+
+        # Verify endpoint existence now that whitelist/domain-range checks passed.
         for relation in relations:
-            ops.extend(self._relation_ops(relation))
+            self._pre_check_relation_endpoints(relation, known_ids=batch_ids)
+
+        for rel_ops in validated_relation_ops:
+            ops.extend(rel_ops)
 
         def _write_all(tx: Any) -> None:
             for query, params in ops:
@@ -279,8 +302,12 @@ class Neo4jService:
                 "entity_id": str(entity_id),
                 "source_snippet": str(params.get("source_snippet") or ""),
             }
+            # MERGE the Document node so provenance links work even when the
+            # document was not explicitly written via upsert_document first.
             link_query = """
-            MATCH (d:Document {id: $document_id})
+            MERGE (d:Document {id: $document_id})
+            ON CREATE SET d.created_at = datetime(), d.imported_at = datetime()
+            WITH d
             MATCH (e:Entity {id: $entity_id})
             MERGE (d)-[r:MENTIONS {entity_id: $entity_id}]->(e)
             SET r.source_snippet = $source_snippet,
@@ -300,6 +327,10 @@ class Neo4jService:
         )
         source_type = relation.get("subject_type") or relation.get("source_type")
         target_type = relation.get("object_type") or relation.get("target_type")
+        # TODO(domain-range): source_type/target_type should be inferred from the
+        # existing Entity node labels read from the graph rather than trusted from
+        # the relation JSON.  LLM-emitted subject_type/object_type are unreliable.
+        # See validate_relation() in ontology_validator.py.
         if not self.ontology.validate_relation(rel_type, source_type, target_type):
             raise Neo4jServiceError(
                 f"Relation {source_type} -{rel_type}-> {target_type} violates ontology domain/range constraints"
@@ -429,6 +460,48 @@ class Neo4jService:
         LIMIT $limit
         """
         return self._rows(query, {"limit": int(limit)})
+
+    def _verify_entity_exists(self, entity_id: str) -> bool:
+        """Return True if an Entity node with this id is present in the graph."""
+        rows = self._rows(
+            "MATCH (e:Entity {id: $id}) RETURN count(e) AS n",
+            {"id": str(entity_id)},
+        )
+        return bool(rows and rows[0].get("n", 0) > 0)
+
+    def _pre_check_relation_endpoints(
+        self,
+        relation: dict[str, Any],
+        known_ids: set[str] | None = None,
+    ) -> None:
+        """Raise Neo4jServiceError if either endpoint Entity is absent from the graph.
+
+        known_ids, when provided, are entity IDs being written in the same batch.
+        They are trusted without a DB round-trip so that entities and relations
+        can be written together in one upsert_validated_knowledge call.
+        """
+        known = known_ids or set()
+        source_id = str(
+            relation.get("source_entity_id")
+            or relation.get("subject_id")
+            or relation.get("source")
+            or ""
+        )
+        target_id = str(
+            relation.get("target_entity_id")
+            or relation.get("object_id")
+            or relation.get("target")
+            or ""
+        )
+        rel_type = relation.get("predicate") or relation.get("type") or "RELATED_TO"
+        if source_id not in known and not self._verify_entity_exists(source_id):
+            raise Neo4jServiceError(
+                f"Cannot create {rel_type} relation: missing source entity {source_id!r}"
+            )
+        if target_id not in known and not self._verify_entity_exists(target_id):
+            raise Neo4jServiceError(
+                f"Cannot create {rel_type} relation: missing target entity {target_id!r}"
+            )
 
     def _safe_label(self, value: str) -> str:
         label = normalize_label(value)

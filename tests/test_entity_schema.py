@@ -89,12 +89,14 @@ def test_extractor_writes_strict_json_staging_files(tmp_path):
     expected_entity_id = stable_entity_id("doc-1", "Acme AI", "Company")
     # Relations whose endpoints are TMP-xxx get their IDs replaced with the
     # stable UUIDs; "alice" has no matching entity so it stays as-is.
+    # source_document_id is propagated from the doc_id resolved at extraction time.
     assert entities == [
         {
             "evidence_grade": "paraphrase",  # 0.95 → paraphrase
             "id": expected_entity_id,
             "label": "Acme AI",
             "name": "Acme AI",
+            "source_document_id": "doc-1",
             "temporary_id": expected_entity_id,
             "type": "Company",
         }
@@ -104,6 +106,7 @@ def test_extractor_writes_strict_json_staging_files(tmp_path):
             "evidence_grade": "paraphrase",  # 0.8 → paraphrase
             "object_temporary_id": expected_entity_id,
             "predicate": "FOUNDED",
+            "source_document_id": "doc-1",
             "source_entity_id": "alice",
             "subject_temporary_id": "alice",
             "target_entity_id": expected_entity_id,
@@ -166,3 +169,43 @@ def test_invalid_json_response_does_not_write_staging_files(tmp_path):
 
     assert not (tmp_path / "candidate_entities.json").exists()
     assert not (tmp_path / "candidate_relations.json").exists()
+
+
+def test_source_document_id_populated_in_staging(tmp_path):
+    """extract_to_staging must write source_document_id on every entity and
+    relation so that Neo4j can create MENTIONS provenance links."""
+    llm = FakeLLM(
+        [
+            {
+                "document_type": "PitchDeck",
+                "secondary_types": [],
+                "summary": "",
+                "tags": [],
+                "confidence": "high",
+            },
+            {
+                "entities": [
+                    {
+                        "temporary_id": "TMP-1",
+                        "type": "Assumption",
+                        "label": "Users will pay for this",
+                        "description": "Pricing assumption",
+                        "source_snippet": "Survey results show willingness to pay.",
+                        "evidence_grade": "paraphrase",
+                    }
+                ]
+            },
+            {
+                "relations": []
+            },
+        ]
+    )
+    extractor = EntityExtractor(llm_service=llm, staging_dir=tmp_path)
+    extractor.extract_to_staging("Some text.", {"source_document_id": "doc-42"})
+
+    entities = json.loads((tmp_path / "candidate_entities.json").read_text())
+    assert len(entities) == 1
+    assert entities[0]["source_document_id"] == "doc-42", (
+        "source_document_id must be written to staging so Neo4j can create "
+        "the Document→Entity MENTIONS link at write time"
+    )

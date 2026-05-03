@@ -48,8 +48,16 @@ class FakeResult(list):
 
 
 class FakeSession:
-    def __init__(self, calls):
+    """FakeSession that responds to entity-existence count queries.
+
+    Queries containing 'count(e) AS n' return {"n": 1} for IDs in
+    known_entity_ids and {"n": 0} for all others, so that the relation
+    endpoint pre-check works correctly in tests.
+    """
+
+    def __init__(self, calls, known_entity_ids=None):
         self.calls = calls
+        self._known: set[str] = set(known_entity_ids or [])
 
     def __enter__(self):
         return self
@@ -58,7 +66,11 @@ class FakeSession:
         return False
 
     def run(self, query, params=None):
-        self.calls.append((query, params or {}))
+        p = params or {}
+        self.calls.append((query, p))
+        if "count(e) AS n" in query and "id" in p:
+            n = 1 if p["id"] in self._known else 0
+            return [{"n": n}]
         return FakeResult()
 
     def execute_write(self, fn):
@@ -66,20 +78,21 @@ class FakeSession:
 
 
 class FakeDriver:
-    def __init__(self):
+    def __init__(self, known_entity_ids=None):
         self.calls = []
+        self._known: set[str] = set(known_entity_ids or [])
 
     def session(self, **kwargs):
-        return FakeSession(self.calls)
+        return FakeSession(self.calls, self._known)
 
     def close(self):
         self.calls.append(("close", {}))
 
 
-def _service(extra_labels=None, extra_rels=None):
+def _service(extra_labels=None, extra_rels=None, known_entity_ids=None):
     labels = {"Entity", "Assumption", "Evidence", "Risk", "Startup"} | (extra_labels or set())
     rels = {"RELATED_TO", "SUPPORTED_BY", "CONTRADICTED_BY", "THREATENS", "FOUNDED"} | (extra_rels or set())
-    return Neo4jService(driver=FakeDriver(), allowed_labels=labels, allowed_relationships=rels)
+    return Neo4jService(driver=FakeDriver(known_entity_ids=known_entity_ids), allowed_labels=labels, allowed_relationships=rels)
 
 
 # ---------------------------------------------------------------------------
@@ -220,7 +233,8 @@ class TestIdempotentNeo4jWrites:
         assert ids.count("e-stable-1") >= 2
 
     def test_upsert_relation_twice_uses_merge_with_stable_id(self):
-        svc = _service()
+        # Endpoints e1 and e2 must exist in the graph for the pre-check to pass.
+        svc = _service(known_entity_ids={"e1", "e2"})
         relation = {
             "id": "r-1",
             "source_entity_id": "e1",
@@ -291,8 +305,10 @@ class TestEmptyExportWarning:
 
 class TestDomainRangeEnforcement:
     def test_ontology_rejects_invalid_triple(self):
+        # Both endpoints must exist so the pre-check passes and domain/range
+        # enforcement is the failing gate, not the existence check.
         svc = Neo4jService(
-            driver=FakeDriver(),
+            driver=FakeDriver(known_entity_ids={"f1", "f2"}),
             allowed_labels={"Entity", "Risk", "Founder"},
             allowed_relationships={"THREATENS"},
         )
@@ -311,8 +327,9 @@ class TestDomainRangeEnforcement:
             svc.upsert_relation(relation)
 
     def test_ontology_accepts_valid_triple(self):
+        # Both endpoints must exist so the pre-check and domain/range both pass.
         svc = Neo4jService(
-            driver=FakeDriver(),
+            driver=FakeDriver(known_entity_ids={"r1", "m1"}),
             allowed_labels={"Entity", "Risk", "Milestone"},
             allowed_relationships={"THREATENS"},
         )
