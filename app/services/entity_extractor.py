@@ -7,6 +7,7 @@ Neo4j connection or mutates the production graph.
 from __future__ import annotations
 
 import json
+import uuid
 from pathlib import Path
 from typing import Any, Iterable
 
@@ -26,6 +27,21 @@ except ImportError:  # pragma: no cover - exercised implicitly when shared model
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 PROMPT_DIR = PROJECT_ROOT / "app" / "prompts"
 DEFAULT_STAGING_DIR = PROJECT_ROOT / "data" / "staging"
+
+# Fixed namespace UUID for deterministic entity ID generation.
+# Never change this value — changing it would invalidate all existing entity IDs.
+_ENTITY_ID_NAMESPACE = uuid.UUID("a7f3c2e1-9b4d-4f8a-b6e5-1d2c3e4f5a6b")
+
+
+def stable_entity_id(doc_id: str, label: str, entity_type: str) -> str:
+    """Generate a stable, collision-safe UUID for an entity.
+
+    The ID is deterministic given the same (doc_id, label, entity_type) triple,
+    so re-extracting the same document produces the same IDs and enables safe
+    MERGE operations in Neo4j.
+    """
+    key = f"{doc_id}::{label.strip().lower()}::{entity_type}"
+    return str(uuid.uuid5(_ENTITY_ID_NAMESPACE, key))
 
 
 class DocumentClassification(BaseModel):
@@ -284,11 +300,41 @@ class EntityExtractor:
         text: str,
         metadata: dict[str, Any] | None = None,
     ) -> ExtractionResult:
-        """Run classification and extraction, then atomically stage JSON files."""
+        """Run classification and extraction, then atomically stage JSON files.
 
-        classification = self.classify_document(text, metadata)
-        entities = self.extract_entities(text, metadata)
-        relations = self.extract_relations(text, entities, metadata)
+        After LLM extraction, each entity receives a stable UUIDv5 derived from
+        (source_document_id, normalised_label, type) so that re-extracting the
+        same document yields the same entity IDs.  Relation source/target IDs
+        are updated to match.
+        """
+        meta = metadata or {}
+        classification = self.classify_document(text, meta)
+        entities = self.extract_entities(text, meta)
+
+        doc_id = str(
+            meta.get("source_document_id")
+            or meta.get("document_id")
+            or meta.get("source_document")
+            or ""
+        )
+        # Build temporary_id → stable UUIDv5 mapping so relations can be updated.
+        tmp_to_stable: dict[str, str] = {}
+        for entity in entities:
+            sid = stable_entity_id(doc_id, entity.label or "", entity.type)
+            old_tmp = entity.temporary_id or entity.id or ""
+            tmp_to_stable[old_tmp] = sid
+            entity.id = sid
+            entity.temporary_id = sid
+
+        relations = self.extract_relations(text, entities, meta)
+        for relation in relations:
+            if relation.source_entity_id in tmp_to_stable:
+                relation.source_entity_id = tmp_to_stable[relation.source_entity_id]
+                relation.subject_temporary_id = relation.source_entity_id
+            if relation.target_entity_id in tmp_to_stable:
+                relation.target_entity_id = tmp_to_stable[relation.target_entity_id]
+                relation.object_temporary_id = relation.target_entity_id
+
         self._write_candidates(entities, relations)
         return ExtractionResult(
             classification=classification,

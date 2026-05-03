@@ -2,7 +2,12 @@ import json
 
 import pytest
 
-from app.services.entity_extractor import CandidateKnowledgeEntity, CandidateKnowledgeRelation, EntityExtractor
+from app.services.entity_extractor import (
+    CandidateKnowledgeEntity,
+    CandidateKnowledgeRelation,
+    EntityExtractor,
+    stable_entity_id,
+)
 from app.services.llm_service import LLMInvalidJSONError
 
 
@@ -79,25 +84,29 @@ def test_extractor_writes_strict_json_staging_files(tmp_path):
     assert result.wrote_files is True
     entities = json.loads((tmp_path / "candidate_entities.json").read_text())
     relations = json.loads((tmp_path / "candidate_relations.json").read_text())
-    # Numeric LLM confidence is coerced to evidence_grade; the float is dropped.
+    # Entity ID is now a stable UUIDv5 keyed on (doc_id, normalised_label, type).
+    # doc_id is resolved from metadata key "source_document" = "doc-1".
+    expected_entity_id = stable_entity_id("doc-1", "Acme AI", "Company")
+    # Relations whose endpoints are TMP-xxx get their IDs replaced with the
+    # stable UUIDs; "alice" has no matching entity so it stays as-is.
     assert entities == [
         {
             "evidence_grade": "paraphrase",  # 0.95 → paraphrase
-            "id": "acme-ai",
+            "id": expected_entity_id,
             "label": "Acme AI",
             "name": "Acme AI",
-            "temporary_id": "acme-ai",
+            "temporary_id": expected_entity_id,
             "type": "Company",
         }
     ]
     assert relations == [
         {
             "evidence_grade": "paraphrase",  # 0.8 → paraphrase
-            "object_temporary_id": "acme-ai",
+            "object_temporary_id": expected_entity_id,
             "predicate": "FOUNDED",
             "source_entity_id": "alice",
             "subject_temporary_id": "alice",
-            "target_entity_id": "acme-ai",
+            "target_entity_id": expected_entity_id,
             "type": "FOUNDED",
         }
     ]

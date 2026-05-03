@@ -157,7 +157,7 @@ def build_source_document(
 ) -> SourceDocument:
     date_uploaded = datetime.now(UTC)
     model_payload = {
-        "id": digest[:16],
+        "id": digest,  # full SHA-256 hex — no collision risk, stable across runs
         "title": Path(filename).stem,
         "original_filename": filename,
         "file_type": Path(filename).suffix.lower().lstrip("."),
@@ -168,7 +168,7 @@ def build_source_document(
         "extraction_status": "converted_to_markdown",
     }
     fallback_payload = {
-        "id": digest[:16],
+        "id": digest,  # full SHA-256 hex
         "original_filename": filename,
         "file_type": Path(filename).suffix.lower().lstrip("."),
         "mime_type": mime_type,
