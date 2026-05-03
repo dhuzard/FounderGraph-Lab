@@ -16,7 +16,9 @@ def graph_to_pyvis_html(graph: dict[str, list[dict[str, Any]]], height: str = "7
     network.barnes_hut(gravity=-6000, central_gravity=0.25, spring_length=180)
 
     for node in graph.get("nodes", []):
-        node_id = str(node.get("id"))
+        if not node.get("id"):
+            continue
+        node_id = str(node["id"])
         labels = [label for label in node.get("labels", []) if label != "Entity"]
         title = _metadata_title(node)
         network.add_node(
