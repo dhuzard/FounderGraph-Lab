@@ -56,11 +56,20 @@ class DocumentClassification(BaseModel):
         return value
 
 
+EVIDENCE_GRADES = ("direct_quote", "paraphrase", "inference", "speculation")
+REVIEWER_CONFIDENCES = ("strong", "moderate", "weak", "ungraded")
+
+
 class CandidateKnowledgeEntity(BaseModel):
     """Fallback KnowledgeEntity staging schema.
 
     Required fields: id, name, type. Optional fields carry evidence and metadata
     for downstream review before any graph write happens.
+
+    confidence (float|str) is kept for backward-compatibility with existing
+    staging files but should not be treated as a calibrated probability.
+    Use evidence_grade (set by the LLM) and reviewer_confidence (set by the
+    human reviewer) as the canonical grounding signals.
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -75,9 +84,34 @@ class CandidateKnowledgeEntity(BaseModel):
     evidence: str | None = None
     source_snippet: str | None = None
     source_document: str | None = None
-    confidence: float | str = "medium"
+    # Deprecated: LLM-emitted float/string confidence — not a calibrated probability.
+    confidence: float | str | None = None
+    # How directly the document text supports this entity.
+    evidence_grade: str | None = None
+    # Set by the human reviewer during validation.
+    reviewer_confidence: str | None = None
+    reviewer_comment: str | None = None
     tags: list[str] = Field(default_factory=list)
     properties: dict[str, Any] = Field(default_factory=dict)
+
+    @model_validator(mode="before")
+    @classmethod
+    def _coerce_evidence_grade(cls, value: Any) -> Any:
+        """Accept legacy numeric confidence and convert to evidence_grade."""
+        if not isinstance(value, dict):
+            return value
+        item = dict(value)
+        raw_conf = item.get("confidence")
+        if isinstance(raw_conf, (int, float)):
+            # Numeric LLM confidence → categorical evidence grade.
+            if raw_conf >= 0.8:
+                item.setdefault("evidence_grade", "paraphrase")
+            elif raw_conf >= 0.5:
+                item.setdefault("evidence_grade", "inference")
+            else:
+                item.setdefault("evidence_grade", "speculation")
+            item["confidence"] = None  # discard the numeric value
+        return item
 
     @model_validator(mode="after")
     def _normalize_identity(self) -> "CandidateKnowledgeEntity":
@@ -91,6 +125,10 @@ class CandidateKnowledgeEntity(BaseModel):
             self.name = self.label
         if not self.id or not self.label:
             raise ValueError("Candidate entity requires id/temporary_id and label/name")
+        if self.evidence_grade and self.evidence_grade not in EVIDENCE_GRADES:
+            self.evidence_grade = "inference"
+        if self.reviewer_confidence and self.reviewer_confidence not in REVIEWER_CONFIDENCES:
+            self.reviewer_confidence = "ungraded"
         return self
 
 
@@ -114,19 +152,33 @@ class CandidateKnowledgeRelation(BaseModel):
     evidence: str | None = None
     source_snippet: str | None = None
     source_document: str | None = None
-    confidence: float | str = "medium"
+    # Deprecated: LLM-emitted float/string confidence — not a calibrated probability.
+    confidence: float | str | None = None
+    # How directly the document text supports this relation.
+    evidence_grade: str | None = None
     properties: dict[str, Any] = Field(default_factory=dict)
 
     @model_validator(mode="before")
     @classmethod
     def _accept_ontology_shape(cls, value: Any) -> Any:
-        if isinstance(value, dict) and "subject_temporary_id" in value:
-            item = dict(value)
+        if not isinstance(value, dict):
+            return value
+        item = dict(value)
+        if "subject_temporary_id" in item:
             item.setdefault("source_entity_id", item.get("subject_temporary_id"))
             item.setdefault("target_entity_id", item.get("object_temporary_id"))
             item.setdefault("type", item.get("predicate"))
-            return item
-        return value
+        # Coerce numeric LLM confidence to evidence_grade (same logic as entity).
+        raw_conf = item.get("confidence")
+        if isinstance(raw_conf, (int, float)):
+            if raw_conf >= 0.8:
+                item.setdefault("evidence_grade", "paraphrase")
+            elif raw_conf >= 0.5:
+                item.setdefault("evidence_grade", "inference")
+            else:
+                item.setdefault("evidence_grade", "speculation")
+            item["confidence"] = None
+        return item
 
     @model_validator(mode="after")
     def _normalize_predicate(self) -> "CandidateKnowledgeRelation":

@@ -79,9 +79,10 @@ def test_extractor_writes_strict_json_staging_files(tmp_path):
     assert result.wrote_files is True
     entities = json.loads((tmp_path / "candidate_entities.json").read_text())
     relations = json.loads((tmp_path / "candidate_relations.json").read_text())
+    # Numeric LLM confidence is coerced to evidence_grade; the float is dropped.
     assert entities == [
         {
-            "confidence": 0.95,
+            "evidence_grade": "paraphrase",  # 0.95 → paraphrase
             "id": "acme-ai",
             "label": "Acme AI",
             "name": "Acme AI",
@@ -91,7 +92,7 @@ def test_extractor_writes_strict_json_staging_files(tmp_path):
     ]
     assert relations == [
         {
-            "confidence": 0.8,
+            "evidence_grade": "paraphrase",  # 0.8 → paraphrase
             "object_temporary_id": "acme-ai",
             "predicate": "FOUNDED",
             "source_entity_id": "alice",
