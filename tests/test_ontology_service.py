@@ -124,3 +124,41 @@ def test_default_ontology_yaml_loads_cleanly():
     assert len(config.entity_classes) >= 10
     assert len(config.allowed_labels()) >= 12
     assert len(config.allowed_relationships()) >= 5
+
+
+# ---------------------------------------------------------------------------
+# Stage 2A: ontology loader / service boundary agreement (Patch Set 3)
+# ---------------------------------------------------------------------------
+
+def test_ontology_loader_and_ontology_service_agree_on_core_entity_types():
+    """OntologyLoader (runtime) and OntologyConfig (static config) must both
+    recognise the same core entity types from startup_ontology.yaml."""
+    from app.services.ontology_validator import get_ontology
+    loader = get_ontology()
+    service = load_ontology()
+    core_types = {"Startup", "Founder", "Assumption", "Evidence", "Risk", "Milestone"}
+    missing_from_loader = core_types - loader.allowed_labels
+    missing_from_service = core_types - service.allowed_labels()
+    assert not missing_from_loader, (
+        f"OntologyLoader missing core types: {missing_from_loader}"
+    )
+    assert not missing_from_service, (
+        f"OntologyConfig missing core types: {missing_from_service}"
+    )
+
+
+def test_ontology_loader_and_ontology_service_agree_on_core_relationship_types():
+    """OntologyLoader (runtime) and OntologyConfig (static config) must both
+    recognise the same core relationship types from startup_ontology.yaml."""
+    from app.services.ontology_validator import get_ontology
+    loader = get_ontology()
+    service = load_ontology()
+    core_rels = {"SUPPORTED_BY", "CONTRADICTED_BY", "TARGETS", "RELATED_TO", "MENTIONS"}
+    missing_from_loader = core_rels - loader.allowed_relationships
+    missing_from_service = core_rels - service.allowed_relationships()
+    assert not missing_from_loader, (
+        f"OntologyLoader missing core relationships: {missing_from_loader}"
+    )
+    assert not missing_from_service, (
+        f"OntologyConfig missing core relationships: {missing_from_service}"
+    )

@@ -1,6 +1,7 @@
 import json
 
 import pytest
+from pydantic import ValidationError
 
 from app.services.entity_extractor import (
     CandidateKnowledgeEntity,
@@ -226,3 +227,67 @@ def test_reviewer_comment_on_relation_model():
     assert dumped.get("reviewer_comment") == "Verified against the pitch deck transcript.", (
         "reviewer_comment must survive _dump_model so it is preserved in staging JSON"
     )
+
+
+# ---------------------------------------------------------------------------
+# Stage 2A hardening invariants (Patch Set 3)
+# ---------------------------------------------------------------------------
+
+def test_candidate_models_use_source_document_id_not_source_document():
+    """Both candidate models must reject the deprecated source_document field.
+    The canonical field is source_document_id; extra='forbid' enforces this."""
+    with pytest.raises(ValidationError):
+        CandidateKnowledgeEntity.model_validate({
+            "id": "e1",
+            "name": "Test",
+            "type": "Company",
+            "source_document": "doc-1",
+        })
+
+    with pytest.raises(ValidationError):
+        CandidateKnowledgeRelation.model_validate({
+            "source_entity_id": "e1",
+            "target_entity_id": "e2",
+            "type": "FOUNDED",
+            "source_document": "doc-1",
+        })
+
+
+def test_candidate_relation_accepts_reviewer_comment():
+    """CandidateKnowledgeRelation must accept and store reviewer_comment."""
+    rel = CandidateKnowledgeRelation.model_validate({
+        "source_entity_id": "e1",
+        "target_entity_id": "e2",
+        "type": "FOUNDED",
+        "reviewer_comment": "Directional correctness confirmed.",
+    })
+    assert rel.reviewer_comment == "Directional correctness confirmed."
+    assert rel.source_document_id is None
+
+
+def test_no_active_confidence_field_in_candidate_models():
+    """Numeric LLM confidence must be converted to evidence_grade and the
+    confidence field must be set to None — it is not an active evidence field."""
+    entity = CandidateKnowledgeEntity.model_validate({
+        "id": "e1",
+        "name": "Test",
+        "type": "Company",
+        "confidence": 0.95,
+    })
+    assert entity.confidence is None, (
+        "Numeric confidence must be discarded after conversion to evidence_grade"
+    )
+    assert entity.evidence_grade == "paraphrase", (
+        "0.95 confidence must map to 'paraphrase' evidence_grade"
+    )
+
+    relation = CandidateKnowledgeRelation.model_validate({
+        "source_entity_id": "e1",
+        "target_entity_id": "e2",
+        "type": "FOUNDED",
+        "confidence": 0.3,
+    })
+    assert relation.confidence is None, (
+        "Numeric confidence must be discarded on relations too"
+    )
+    assert relation.evidence_grade == "speculation"
