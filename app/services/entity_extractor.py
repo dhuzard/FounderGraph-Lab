@@ -282,17 +282,55 @@ class EntityExtractor:
         relations: list[CandidateKnowledgeRelation],
     ) -> None:
         self.staging_dir.mkdir(parents=True, exist_ok=True)
-        self._atomic_write_json(
+        self._accumulate_json(
             self.staging_dir / "candidate_entities.json",
             [_dump_model(entity) for entity in entities],
         )
-        self._atomic_write_json(
+        self._accumulate_json(
             self.staging_dir / "candidate_relations.json",
             [_dump_model(relation) for relation in relations],
         )
 
     @staticmethod
+    def _accumulate_json(path: Path, new_records: list[dict[str, Any]]) -> None:
+        """Merge new_records into the existing staging file keyed by 'id'.
+
+        New records overwrite existing ones with the same id; records from
+        prior extraction runs are preserved.  Records without an explicit id
+        are keyed by a stable content hash so they are still deduplicated.
+        This prevents multi-document pipelines from silently discarding
+        earlier extractions.
+        """
+        import hashlib
+
+        def _record_key(item: dict[str, Any]) -> str:
+            explicit = item.get("id") or item.get("temporary_id")
+            if explicit:
+                return str(explicit)
+            return hashlib.sha256(
+                json.dumps(item, sort_keys=True, ensure_ascii=True).encode()
+            ).hexdigest()[:16]
+
+        existing: list[dict[str, Any]] = []
+        if path.exists():
+            try:
+                raw = json.loads(path.read_text(encoding="utf-8"))
+                existing = raw if isinstance(raw, list) else []
+            except json.JSONDecodeError:
+                existing = []
+
+        merged: dict[str, dict[str, Any]] = {_record_key(item): item for item in existing}
+        for item in new_records:
+            merged[_record_key(item)] = item
+
+        text = json.dumps(list(merged.values()), ensure_ascii=True, indent=2, sort_keys=True)
+        tmp_path = path.with_suffix(f"{path.suffix}.tmp")
+        tmp_path.write_text(f"{text}\n", encoding="utf-8")
+        tmp_path.replace(path)
+
+    @staticmethod
     def _atomic_write_json(path: Path, payload: list[dict[str, Any]]) -> None:
+        """Fully replace a staging file (used for explicit resets)."""
         text = json.dumps(payload, ensure_ascii=True, indent=2, sort_keys=True)
         tmp_path = path.with_suffix(f"{path.suffix}.tmp")
         tmp_path.write_text(f"{text}\n", encoding="utf-8")
