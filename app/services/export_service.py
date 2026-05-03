@@ -21,7 +21,6 @@ def _timestamp() -> str:
     return datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
 
 
-
 def _load_json_list(path: Path) -> list[dict[str, Any]]:
     if not path.exists():
         return []
@@ -51,12 +50,21 @@ def load_validated_graph() -> dict[str, Any]:
                 "type": entity.get("type", "Entity"),
                 "name": entity.get("label") or entity.get("name", ""),
                 "description": entity.get("description", ""),
-                "confidence": entity.get("confidence", ""),
+                # Canonical evidence fields — confidence is not passed through.
+                "evidence_grade": entity.get("evidence_grade", ""),
+                "reviewer_confidence": entity.get("reviewer_confidence", ""),
+                "reviewer_comment": entity.get("reviewer_comment", ""),
                 "status": entity.get("validation_status", entity.get("status", "")),
                 "source": entity.get("source_file", ""),
                 "source_document_id": entity.get("source_document_id", ""),
                 "source_snippet": entity.get("source_snippet", ""),
                 "tags": entity.get("tags", []),
+                # Ontology-defined per-type fields needed by CSV exports.
+                "criticality": entity.get("criticality", ""),   # Assumption
+                "probability": entity.get("probability", ""),    # Risk
+                "impact": entity.get("impact", ""),              # Risk
+                "mitigation": entity.get("mitigation", ""),      # Risk, Experiment
+                "owner": entity.get("owner", ""),
             }
         )
     edges = []
@@ -67,7 +75,9 @@ def load_validated_graph() -> dict[str, Any]:
                 "source": relation.get("subject_id") or relation.get("source_entity_id") or relation.get("source", ""),
                 "target": relation.get("object_id") or relation.get("target_entity_id") or relation.get("target", ""),
                 "relationship": relation.get("predicate") or relation.get("type", ""),
-                "confidence": relation.get("confidence", ""),
+                # Canonical evidence fields.
+                "evidence_grade": relation.get("evidence_grade", ""),
+                "reviewer_confidence": relation.get("reviewer_confidence", ""),
                 "status": relation.get("validation_status", relation.get("status", "")),
                 "source_document_id": relation.get("source_document_id", ""),
                 "source_file": relation.get("source_file", ""),
@@ -99,14 +109,30 @@ def create_manifest(
         t = str(edge.get("relationship") or edge.get("type", "RELATED_TO"))
         rel_types[t] = rel_types.get(t, 0) + 1
 
+    source_doc_ids = {
+        node.get("source_document_id")
+        for node in graph.get("nodes", [])
+        if node.get("source_document_id")
+    }
+
+    weak_grades = {"inference", "speculation"}
+    weak_evidence_count = sum(
+        1 for node in graph.get("nodes", [])
+        if node.get("evidence_grade") in weak_grades
+    )
+
     return {
         "export_id": export_id,
-        "exported_at": datetime.now(timezone.utc).isoformat(),
+        "graph_snapshot_id": export_id,
+        "export_timestamp": datetime.now(timezone.utc).isoformat(),
         "ontology_version": ontology_version,
         "entity_count": len(graph.get("nodes", [])),
         "relation_count": len(graph.get("edges", [])),
+        "source_document_count": len(source_doc_ids),
+        "weak_evidence_count": weak_evidence_count,
         "entity_types": node_types,
         "relation_types": rel_types,
+        "warning_count": len(warnings),
         "warnings": warnings,
         "generator": "FounderGraph Lab",
     }
@@ -145,6 +171,7 @@ def graph_to_jsonld(graph: dict[str, Any]) -> dict[str, Any]:
         "source_document_id": {"@id": "fg:sourceDocument", "@type": "@id"},
         "evidence_grade": "fg:evidenceGrade",
         "reviewer_confidence": "fg:reviewerConfidence",
+        "reviewer_comment": "fg:reviewerComment",
         "ontology_version": "fg:ontologyVersion",
         # Edge properties
         "fg:sourceEntity": {"@type": "@id"},
@@ -189,9 +216,10 @@ def assumptions_rows(graph: dict[str, Any]) -> list[dict[str, Any]]:
         rows.append(
             {
                 "id": node.get("id", ""),
-                "statement": node.get("statement") or node.get("name") or node.get("label", ""),
-                "category": node.get("category", ""),
-                "confidence": node.get("confidence", ""),
+                "label": node.get("name") or node.get("label", ""),
+                "criticality": node.get("criticality", ""),
+                "evidence_grade": node.get("evidence_grade", ""),
+                "reviewer_confidence": node.get("reviewer_confidence", ""),
                 "status": node.get("status", ""),
                 "owner": node.get("owner", ""),
             }
@@ -199,28 +227,64 @@ def assumptions_rows(graph: dict[str, Any]) -> list[dict[str, Any]]:
     return rows
 
 
-def evidence_matrix_rows(graph: dict[str, Any]) -> list[dict[str, Any]]:
+# Node types whose instances may be "supported by" or "contradicted by" evidence.
+_CLAIM_TYPES = frozenset({
+    "Assumption", "Risk", "FinancialHypothesis", "ValueProposition", "Decision",
+})
+
+
+def evidence_matrix_rows(
+    graph: dict[str, Any],
+) -> tuple[list[dict[str, Any]], list[str]]:
+    """Return (rows, warnings) for SUPPORTED_BY and CONTRADICTED_BY edges.
+
+    Direction is enforced: source must be a claim-type node and target must be
+    an Evidence node.  Edges with inverted direction produce a warning and are
+    skipped rather than silently fabricating a row with swapped endpoints.
+    """
     evidence_by_id = {node.get("id"): node for node in _nodes_by_type(graph, "Evidence")}
-    assumptions_by_id = {node.get("id"): node for node in _nodes_by_type(graph, "Assumption")}
-    rows = []
+    claim_by_id = {
+        node.get("id"): node
+        for node in graph.get("nodes", [])
+        if node.get("type") in _CLAIM_TYPES
+    }
+    rows: list[dict[str, Any]] = []
+    warnings: list[str] = []
     for edge in graph.get("edges", []):
         relationship = edge.get("relationship") or edge.get("type", "")
-        if relationship not in {"SUPPORTED_BY", "CONTRADICTED_BY", "EVIDENCED_BY"}:
+        if relationship not in {"SUPPORTED_BY", "CONTRADICTED_BY"}:
             continue
-        assumption = assumptions_by_id.get(edge.get("source")) or assumptions_by_id.get(edge.get("target"), {})
-        evidence = evidence_by_id.get(edge.get("target")) or evidence_by_id.get(edge.get("source"), {})
+        src = edge.get("source")
+        tgt = edge.get("target")
+        claim = claim_by_id.get(src)
+        evidence = evidence_by_id.get(tgt)
+        if claim is None or evidence is None:
+            # Detect and warn about inverted direction (evidence→claim).
+            if evidence_by_id.get(src) and claim_by_id.get(tgt):
+                warnings.append(
+                    f"Skipped {relationship} edge {src!r}→{tgt!r}: direction is inverted "
+                    f"(evidence node is source, claim node is target). "
+                    f"Expected: claim → evidence."
+                )
+            elif claim is None and evidence is None:
+                warnings.append(
+                    f"Skipped {relationship} edge {src!r}→{tgt!r}: neither endpoint "
+                    f"is a recognised claim or evidence node."
+                )
+            continue
         rows.append(
             {
-                "assumption_id": assumption.get("id", ""),
-                "assumption": assumption.get("statement") or assumption.get("name") or assumption.get("label", ""),
+                "claim_id": claim.get("id", ""),
+                "claim": claim.get("name") or claim.get("label", ""),
                 "evidence_id": evidence.get("id", ""),
-                "evidence": evidence.get("summary") or evidence.get("name") or evidence.get("label", ""),
+                "evidence": evidence.get("name") or evidence.get("label", ""),
                 "relationship": relationship,
-                "strength": edge.get("strength", evidence.get("strength", "")),
+                "evidence_grade": edge.get("evidence_grade") or evidence.get("evidence_grade", ""),
+                "reviewer_confidence": edge.get("reviewer_confidence", ""),
                 "source": evidence.get("source") or evidence.get("source_file", ""),
             }
         )
-    return rows
+    return rows, warnings
 
 
 def risk_register_rows(graph: dict[str, Any]) -> list[dict[str, Any]]:
@@ -231,7 +295,8 @@ def risk_register_rows(graph: dict[str, Any]) -> list[dict[str, Any]]:
                 "id": node.get("id", ""),
                 "risk": node.get("name") or node.get("label", ""),
                 "severity": node.get("severity", ""),
-                "likelihood": node.get("likelihood", ""),
+                "probability": node.get("probability", ""),
+                "impact": node.get("impact", ""),
                 "mitigation": node.get("mitigation", ""),
                 "owner": node.get("owner", ""),
             }
@@ -251,6 +316,9 @@ def export_all(graph: dict[str, Any] | None = None, export_dir: str | Path = EXP
     base = Path(export_dir) / export_id
     base.mkdir(parents=True, exist_ok=True)
 
+    evidence_rows, evidence_warnings = evidence_matrix_rows(graph)
+    warnings.extend(evidence_warnings)
+
     manifest = create_manifest(graph, export_id, warnings)
 
     paths: dict[str, Any] = {
@@ -260,17 +328,18 @@ def export_all(graph: dict[str, Any] | None = None, export_dir: str | Path = EXP
         "assumptions_csv": _write_csv(
             base / "assumptions.csv",
             assumptions_rows(graph),
-            ["id", "statement", "category", "confidence", "status", "owner"],
+            ["id", "label", "criticality", "evidence_grade", "reviewer_confidence", "status", "owner"],
         ),
         "evidence_matrix_csv": _write_csv(
             base / "evidence_matrix.csv",
-            evidence_matrix_rows(graph),
-            ["assumption_id", "assumption", "evidence_id", "evidence", "relationship", "strength", "source"],
+            evidence_rows,
+            ["claim_id", "claim", "evidence_id", "evidence", "relationship",
+             "evidence_grade", "reviewer_confidence", "source"],
         ),
         "risk_register_csv": _write_csv(
             base / "risk_register.csv",
             risk_register_rows(graph),
-            ["id", "risk", "severity", "likelihood", "mitigation", "owner"],
+            ["id", "risk", "severity", "probability", "impact", "mitigation", "owner"],
         ),
     }
 
