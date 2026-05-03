@@ -184,16 +184,9 @@ def test_manifest_counts_match_exported_graph(tmp_path):
 
 
 def test_export_fails_when_no_validated_knowledge(tmp_path):
-    """export_all on an empty graph must include a 'No validated knowledge' warning
-    so callers can surface a clear error; export files must still be created."""
-    result = export_all(graph={"nodes": [], "edges": []}, export_dir=tmp_path)
-
-    assert result["warnings"], "Empty graph must produce at least one warning"
-    assert any("No validated knowledge" in w for w in result["warnings"]), (
-        "Warning must identify the problem as missing validated knowledge"
-    )
-    # The manifest must still be written so the user has an audit trail.
-    assert Path(result["manifest"]).exists()
-    assert result["warnings"] == json.loads(
-        Path(result["manifest"]).read_text()
-    )["warnings"], "Manifest warnings must match returned warnings"
+    """export_all must raise ValueError immediately when the graph is empty.
+    No files should be written to disk — the caller surfaces st.error() to the user."""
+    with pytest.raises(ValueError, match="No validated knowledge"):
+        export_all(graph={"nodes": [], "edges": []}, export_dir=tmp_path)
+    # Confirm no export directory or files were created before the raise.
+    assert not any(tmp_path.iterdir()), "No files must be written when export_all raises"

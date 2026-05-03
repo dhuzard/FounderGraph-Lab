@@ -261,14 +261,10 @@ class TestIdempotentNeo4jWrites:
 # ---------------------------------------------------------------------------
 
 class TestEmptyExportWarning:
-    def test_export_warns_when_no_validated_knowledge(self, tmp_path):
-        # Export from an empty validated_entities and validated_relations
-        result = export_all(
-            graph={"nodes": [], "edges": []},
-            export_dir=tmp_path,
-        )
-        assert result["warnings"], "Should warn when exporting an empty graph"
-        assert "No validated knowledge" in result["warnings"][0]
+    def test_export_raises_when_no_validated_knowledge(self, tmp_path):
+        # export_all must raise immediately — no files are written to disk.
+        with pytest.raises(ValueError, match="No validated knowledge"):
+            export_all(graph={"nodes": [], "edges": []}, export_dir=tmp_path)
 
     def test_export_no_warning_when_knowledge_exists(self, tmp_path):
         graph = {
@@ -293,10 +289,10 @@ class TestEmptyExportWarning:
         assert manifest["ontology_version"] != "unknown"
 
     def test_export_does_not_contain_sample_data(self, tmp_path):
-        """Exporting an empty graph must not produce sample-data nodes."""
-        result = export_all(graph={"nodes": [], "edges": []}, export_dir=tmp_path)
-        graph_data = json.loads(Path(result["graph_json"]).read_text())
-        assert graph_data["nodes"] == [], "Empty export must have no nodes, not demo data"
+        """export_all must raise on an empty graph — no files written, no fake data."""
+        with pytest.raises(ValueError, match="No validated knowledge"):
+            export_all(graph={"nodes": [], "edges": []}, export_dir=tmp_path)
+        assert not any(tmp_path.rglob("graph.json")), "No files must be written when export raises"
 
 
 # ---------------------------------------------------------------------------

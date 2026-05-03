@@ -306,12 +306,12 @@ def risk_register_rows(graph: dict[str, Any]) -> list[dict[str, Any]]:
 
 def export_all(graph: dict[str, Any] | None = None, export_dir: str | Path = EXPORT_DIR) -> dict[str, Any]:
     graph = graph or load_validated_graph()
-    warnings: list[str] = []
     if not graph.get("nodes") and not graph.get("edges"):
-        warnings.append(
+        raise ValueError(
             "No validated knowledge found. "
             "Validate entities and relations on the Validate Knowledge page before exporting."
         )
+    warnings: list[str] = []
     export_id = _timestamp()
     base = Path(export_dir) / export_id
     base.mkdir(parents=True, exist_ok=True)

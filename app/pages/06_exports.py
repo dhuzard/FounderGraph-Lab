@@ -30,16 +30,14 @@ def main() -> None:
     st.caption("Generate graph, assumptions, evidence, risk, audit, and zip artifacts.")
 
     if st.button("Create export bundle", type="primary"):
-        paths = export_all()
-
-        no_knowledge = [w for w in paths.get("warnings", []) if "No validated knowledge" in w]
-        if no_knowledge:
-            st.error(no_knowledge[0])
+        try:
+            paths = export_all()
+        except ValueError as exc:
+            st.error(str(exc))
             st.info("Validate entities and relations on the Validate Knowledge page first.")
             return
 
-        other_warnings = [w for w in paths.get("warnings", []) if "No validated knowledge" not in w]
-        for warning in other_warnings:
+        for warning in paths.get("warnings", []):
             st.warning(warning)
 
         st.success(f"Export bundle created: {paths['zip']}")
