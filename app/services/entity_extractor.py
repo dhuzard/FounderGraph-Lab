@@ -220,7 +220,8 @@ class EntityExtractor:
             "extract_relations.md",
             text,
             metadata or {},
-            extra_context={"candidate_entities": entity_payload},
+            # key matches {{entities_json}} placeholder in the template
+            extra_context={"entities_json": entity_payload},
         )
         payload = self.llm_service.generate_json(prompt)
         items = _coerce_items(payload, "relations")
@@ -251,10 +252,28 @@ class EntityExtractor:
         metadata: dict[str, Any],
         extra_context: dict[str, Any] | None = None,
     ) -> str:
-        context = {"metadata": metadata, "document_text": text}
+        """Load a prompt template and substitute all {{key}} placeholders.
+
+        Built-in substitutions:
+          {{document_text}}     — the raw document text
+          {{document_metadata}} — JSON-serialised metadata dict
+
+        Additional substitutions come from extra_context, where each key maps
+        to a value that is JSON-serialised if it is not already a string.
+        Unrecognised placeholders are left as-is so the model receives the
+        literal text rather than an empty string.
+        """
+        template = _load_prompt(prompt_name).strip()
+        substitutions: dict[str, str] = {
+            "document_text": text,
+            "document_metadata": _json_for_prompt(metadata),
+        }
         if extra_context:
-            context.update(extra_context)
-        return f"{_load_prompt(prompt_name).strip()}\n\nINPUT_JSON:\n{_json_for_prompt(context)}"
+            for key, value in extra_context.items():
+                substitutions[key] = value if isinstance(value, str) else _json_for_prompt(value)
+        for placeholder, replacement in substitutions.items():
+            template = template.replace("{{" + placeholder + "}}", replacement)
+        return template
 
     def _validate_entities(self, items: list[Any]) -> list[CandidateKnowledgeEntity]:
         staged: list[CandidateKnowledgeEntity] = []
