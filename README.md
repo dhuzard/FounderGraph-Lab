@@ -30,7 +30,8 @@ startup files
 10. [Data layout](#data-layout)
 11. [Running tests](#running-tests)
 12. [Security model](#security-model)
-13. [Sample data](#sample-data)
+13. [Validated knowledge pipeline](#validated-knowledge-pipeline)
+14. [Sample data](#sample-data)
 
 ---
 
@@ -314,9 +315,9 @@ Generates portable export bundles from validated knowledge.
 |---|---|
 | `graph.json` | Full graph with nodes and edges |
 | `graph.jsonld` | JSON-LD with `fg:` ontology context |
-| `assumptions.csv` | Assumption nodes with category, confidence, status, owner |
-| `evidence_matrix.csv` | Assumption ↔ Evidence links with relationship type and source |
-| `risk_register.csv` | Risk nodes with severity, likelihood, mitigation, owner |
+| `assumptions.csv` | Assumption nodes with criticality, evidence_grade, reviewer_confidence, status, owner |
+| `evidence_matrix.csv` | Assumption ↔ Evidence links with relationship type, evidence_grade, and source |
+| `risk_register.csv` | Risk nodes with severity, probability, impact, mitigation, owner |
 | `audits/` | All Markdown audit reports |
 | `*.zip` | All of the above in one archive |
 
@@ -507,19 +508,21 @@ scripts/
 make test                    # runs pytest with PYTHONPATH=.
 ```
 
-The test suite covers (41 tests):
+The test suite covers (88 tests):
 
 | Module | Tests |
 |---|---|
-| `test_entity_schema.py` | Entity/relation Pydantic schemas, staging pipeline, ontology shapes |
-| `test_neo4j_service.py` | Label/relationship allowlists, validated-only writes, parameterized Cypher |
+| `test_entity_schema.py` | Entity/relation Pydantic schemas, stable UUID IDs, staging pipeline, confidence quarantine |
+| `test_neo4j_service.py` | Label/relationship allowlists, validated-only writes, parameterized Cypher, MENTIONS provenance, endpoint pre-check |
 | `test_ontology_service.py` | YAML load/save, allowed_labels, allowed_relationships, add/rename/remove |
-| `test_ontology_validator.py` | Unknown types, missing fields, unknown predicates, cross-batch relations, atomic violation log |
+| `test_ontology_validator.py` | OntologyLoader drift, staging accumulation, idempotent writes, domain/range enforcement, no-write-before-validation, stable IDs |
+| `test_export_service.py` | Field correctness (evidence_grade, probability/impact), direction enforcement, manifest schema |
+| `test_end_to_end_pipeline.py` | Full mocked pipeline: extraction → provenance → Neo4j write → export |
 | `test_extractors.py` | PDF/DOCX/TXT extraction |
 | `test_markdown_converter.py` | Markdown conversion |
 | `test_qdrant_service.py` | Vector store upsert and search |
 
-Shared fixtures in `tests/conftest.py`: `FakeLLM`, `FakeDriver`, `FakeSession`, `fake_neo4j_service`.
+`tests/conftest.py` provides a legacy `fake_neo4j_service` fixture. The high-risk test modules define their own inline `FakeDriver`/`FakeSession` with `known_entity_ids` support required by the endpoint pre-check tests.
 
 Lint:
 
@@ -543,6 +546,28 @@ make format                  # ruff format
 | Atomic writes | All JSON files use `.tmp` → rename; no partial write can corrupt the staging-to-graph gate |
 | Source provenance | Every node and edge stores `source_document_id`, `source_file`, `source_snippet` |
 | Original files immutable | Uploaded files are stored by digest and never overwritten |
+
+---
+
+## Validated knowledge pipeline
+
+This section summarises the integrity guarantees that hold across the full pipeline. Each guarantee is enforced in code, not just by convention.
+
+**Local-first ingestion.** All files are stored locally by SHA-256 digest before any LLM call. No document is sent to an external service during ingestion.
+
+**LLM extraction produces candidates only.** `EntityExtractor.extract_to_staging()` writes to `data/staging/candidate_entities.json` and `candidate_relations.json`. It never opens a Neo4j connection. A candidate is just a proposal — it has no effect on the graph until a human approves it.
+
+**Ontology pre-validation rejects unknown types and predicates.** Before candidates reach the review screen, `OntologyLoader.validate_relation()` checks every relation against the domain/range map in `startup_ontology.yaml`. Entities with unknown types and relations with unknown predicates are blocked at this gate, not silently admitted.
+
+**Human approval is required before any Neo4j write.** `Neo4jService._require_validated()` raises `Neo4jServiceError` for any record whose `validation_status` (or `status`) is not `"validated"`. A pending, rejected, or needs-more-evidence record cannot reach the graph regardless of how it was constructed.
+
+**`source_document_id` and MENTIONS preserve provenance.** Every entity receives a stable `source_document_id` at extraction time (keyed by `sha256` of the original file). When the entity is written to Neo4j, `_entity_ops()` automatically creates a `MERGE (d:Document)-[:MENTIONS]->(e:Entity)` link using `MERGE` (not `MATCH`), so the provenance edge is created on demand even when the document was not explicitly upserted first.
+
+**Stable UUIDv5 entity IDs prevent phantom duplicates.** `stable_entity_id(doc_id, label, type)` generates a deterministic UUID from `(source_document_id, normalised_label, entity_type)`. Re-extracting the same document produces the same IDs, so Neo4j `MERGE` operations are safe across multiple extraction runs.
+
+**Relation endpoint checks prevent silent graph corruption.** Before any relation write, `_pre_check_relation_endpoints()` verifies that both the source and target entity nodes exist — either in the current batch or already in the graph. A missing endpoint raises `Neo4jServiceError` before `execute_write` is called, so no partial relation can land in the graph.
+
+**`export_all()` raises before any file I/O if no validated knowledge exists.** If both `nodes` and `edges` are empty, `export_all()` raises `ValueError("No validated knowledge found …")` without writing a single file. The caller (the Exports page) surfaces `st.error()` to the user. No placeholder ZIP is ever created.
 
 ---
 
