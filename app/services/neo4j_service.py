@@ -148,108 +148,21 @@ class Neo4jService:
             for statement in statements:
                 session.run(statement)
 
+    # ------------------------------------------------------------------
+    # Public single-item write helpers
+    # ------------------------------------------------------------------
+
     def upsert_document(self, document: dict[str, Any]) -> None:
-        document_id = document.get("id") or document.get("document_id") or document.get("source_path")
-        if not document_id:
-            raise Neo4jServiceError("Document requires id, document_id, or source_path")
-        params = {
-            "id": str(document_id),
-            "title": document.get("title", ""),
-            "source_path": document.get("source_path") or document.get("original_path", ""),
-            "source_type": document.get("source_type") or document.get("document_type", ""),
-            "metadata_json": json_property(document.get("metadata", {})),
-        }
-        query = """
-        MERGE (d:Document {id: $id})
-        SET d.title = $title,
-            d.source_path = $source_path,
-            d.source_type = $source_type,
-            d.metadata_json = $metadata_json,
-            d.updated_at = datetime()
-        """
-        self._run(query, params)
+        for query, params in self._document_ops(document):
+            self._run(query, params)
 
     def upsert_entity(self, entity: dict[str, Any]) -> None:
-        self._require_validated(entity, "entity")
-        entity_id = entity.get("id")
-        if not entity_id:
-            raise Neo4jServiceError("Validated entity requires id")
-        label = self._safe_label(entity.get("type") or entity.get("label") or "Entity")
-        params = {
-            "id": str(entity_id),
-            "name": entity.get("name") or entity.get("label", ""),
-            "display_label": entity.get("label") or entity.get("name", ""),
-            "type": entity.get("type", label),
-            "description": entity.get("description", ""),
-            "source_snippet": entity.get("source_snippet", ""),
-            "source_document_id": entity.get("source_document_id"),
-            "source_file": entity.get("source_file"),
-            "source_location": entity.get("source_location"),
-            "provenance_json": json_property(entity.get("provenance", {})),
-            "metadata_json": json_property(entity.get("metadata", {})),
-            "status": validation_status(entity),
-        }
-        query = f"""
-        MERGE (e:Entity {{id: $id}})
-        SET e:{label},
-            e.name = $name,
-            e.label = $display_label,
-            e.type = $type,
-            e.description = $description,
-            e.source_snippet = $source_snippet,
-            e.source_document_id = $source_document_id,
-            e.source_file = $source_file,
-            e.source_location = $source_location,
-            e.provenance_json = $provenance_json,
-            e.metadata_json = $metadata_json,
-            e.status = $status,
-            e.validation_status = $status,
-            e.updated_at = datetime()
-        """
-        self._run(query, params)
-        if params.get("source_document_id"):
-            self.link_document_entity(str(params["source_document_id"]), str(entity_id), str(params.get("source_snippet") or ""))
+        for query, params in self._entity_ops(entity):
+            self._run(query, params)
 
     def upsert_relation(self, relation: dict[str, Any]) -> None:
-        self._require_validated(relation, "relation")
-        source_id = relation.get("source_entity_id") or relation.get("subject_id") or relation.get("source")
-        target_id = relation.get("target_entity_id") or relation.get("object_id") or relation.get("target")
-        if not source_id or not target_id:
-            raise Neo4jServiceError("Validated relation requires source and target entity ids")
-        rel_type = self._safe_relationship(relation.get("predicate") or relation.get("type") or relation.get("relation") or "RELATED_TO")
-        source_type = relation.get("subject_type") or relation.get("source_type")
-        target_type = relation.get("object_type") or relation.get("target_type")
-        if not self.ontology.validate_relation(rel_type, source_type, target_type):
-            raise Neo4jServiceError(
-                f"Relation {source_type} -{rel_type}-> {target_type} violates ontology domain/range constraints"
-            )
-        relation_id = relation.get("id") or f"{source_id}:{rel_type}:{target_id}"
-        params = {
-            "id": str(relation_id),
-            "source_id": str(source_id),
-            "target_id": str(target_id),
-            "source_snippet": relation.get("source_snippet", ""),
-            "source_document_id": relation.get("source_document_id"),
-            "source_file": relation.get("source_file"),
-            "provenance_json": json_property(relation.get("provenance", {})),
-            "metadata_json": json_property(relation.get("metadata", {})),
-            "confidence": relation.get("confidence"),
-            "status": validation_status(relation),
-        }
-        query = f"""
-        MATCH (source:Entity {{id: $source_id}})
-        MATCH (target:Entity {{id: $target_id}})
-        MERGE (source)-[r:{rel_type} {{id: $id}}]->(target)
-        SET r.source_snippet = $source_snippet,
-            r.source_document_id = $source_document_id,
-            r.source_file = $source_file,
-            r.provenance_json = $provenance_json,
-            r.metadata_json = $metadata_json,
-            r.confidence = $confidence,
-            r.status = $status,
-            r.updated_at = datetime()
-        """
-        self._run(query, params)
+        for query, params in self._relation_ops(relation):
+            self._run(query, params)
 
     def link_document_entity(self, document_id: str, entity_id: str, snippet: str = "") -> None:
         params = {"document_id": document_id, "entity_id": entity_id, "source_snippet": snippet}
@@ -268,12 +181,160 @@ class Neo4jService:
         relations: list[dict[str, Any]],
         documents: list[dict[str, Any]] | None = None,
     ) -> None:
+        """Write all documents, entities, and relations in a single transaction.
+
+        All validation (whitelist checks, domain/range) runs before any write
+        so that the transaction contains no surprises.  A failure rolls back
+        every write in the batch, preventing partial graph states.
+        """
+        ops: list[tuple[str, dict[str, Any]]] = []
         for document in documents or []:
-            self.upsert_document(document)
+            ops.extend(self._document_ops(document))
         for entity in entities:
-            self.upsert_entity(entity)
+            ops.extend(self._entity_ops(entity))
         for relation in relations:
-            self.upsert_relation(relation)
+            ops.extend(self._relation_ops(relation))
+
+        def _write_all(tx: Any) -> None:
+            for query, params in ops:
+                tx.run(query, params)
+
+        with self._session() as session:
+            session.execute_write(_write_all)
+
+    # ------------------------------------------------------------------
+    # Internal query builders  (validation + parameter assembly only)
+    # ------------------------------------------------------------------
+
+    def _document_ops(self, document: dict[str, Any]) -> list[tuple[str, dict[str, Any]]]:
+        document_id = document.get("id") or document.get("document_id") or document.get("source_path")
+        if not document_id:
+            raise Neo4jServiceError("Document requires id, document_id, or source_path")
+        params: dict[str, Any] = {
+            "id": str(document_id),
+            "title": document.get("title", ""),
+            "source_path": document.get("source_path") or document.get("original_path", ""),
+            "source_type": document.get("source_type") or document.get("document_type", ""),
+            "metadata_json": json_property(document.get("metadata", {})),
+        }
+        query = """
+        MERGE (d:Document {id: $id})
+        SET d.title = $title,
+            d.source_path = $source_path,
+            d.source_type = $source_type,
+            d.metadata_json = $metadata_json,
+            d.updated_at = datetime()
+        """
+        return [(query, params)]
+
+    def _entity_ops(self, entity: dict[str, Any]) -> list[tuple[str, dict[str, Any]]]:
+        self._require_validated(entity, "entity")
+        entity_id = entity.get("id")
+        if not entity_id:
+            raise Neo4jServiceError("Validated entity requires id")
+        label = self._safe_label(entity.get("type") or entity.get("label") or "Entity")
+        params: dict[str, Any] = {
+            "id": str(entity_id),
+            "name": entity.get("name") or entity.get("label", ""),
+            "display_label": entity.get("label") or entity.get("name", ""),
+            "type": entity.get("type", label),
+            "description": entity.get("description", ""),
+            "confidence": entity.get("confidence"),
+            "evidence_grade": entity.get("evidence_grade"),
+            "reviewer_confidence": entity.get("reviewer_confidence"),
+            "source_snippet": entity.get("source_snippet", ""),
+            "source_document_id": entity.get("source_document_id"),
+            "source_file": entity.get("source_file"),
+            "source_location": entity.get("source_location"),
+            "ontology_version": self.ontology.version,
+            "provenance_json": json_property(entity.get("provenance", {})),
+            "metadata_json": json_property(entity.get("metadata", {})),
+            "status": validation_status(entity),
+        }
+        query = f"""
+        MERGE (e:Entity {{id: $id}})
+        SET e:{label},
+            e.name = $name,
+            e.label = $display_label,
+            e.type = $type,
+            e.description = $description,
+            e.confidence = $confidence,
+            e.evidence_grade = $evidence_grade,
+            e.reviewer_confidence = $reviewer_confidence,
+            e.source_snippet = $source_snippet,
+            e.source_document_id = $source_document_id,
+            e.source_file = $source_file,
+            e.source_location = $source_location,
+            e.ontology_version = $ontology_version,
+            e.provenance_json = $provenance_json,
+            e.metadata_json = $metadata_json,
+            e.status = $status,
+            e.validation_status = $status,
+            e.updated_at = datetime()
+        """
+        ops: list[tuple[str, dict[str, Any]]] = [(query, params)]
+        if params.get("source_document_id"):
+            link_params: dict[str, Any] = {
+                "document_id": str(params["source_document_id"]),
+                "entity_id": str(entity_id),
+                "source_snippet": str(params.get("source_snippet") or ""),
+            }
+            link_query = """
+            MATCH (d:Document {id: $document_id})
+            MATCH (e:Entity {id: $entity_id})
+            MERGE (d)-[r:MENTIONS {entity_id: $entity_id}]->(e)
+            SET r.source_snippet = $source_snippet,
+                r.updated_at = datetime()
+            """
+            ops.append((link_query, link_params))
+        return ops
+
+    def _relation_ops(self, relation: dict[str, Any]) -> list[tuple[str, dict[str, Any]]]:
+        self._require_validated(relation, "relation")
+        source_id = relation.get("source_entity_id") or relation.get("subject_id") or relation.get("source")
+        target_id = relation.get("target_entity_id") or relation.get("object_id") or relation.get("target")
+        if not source_id or not target_id:
+            raise Neo4jServiceError("Validated relation requires source and target entity ids")
+        rel_type = self._safe_relationship(
+            relation.get("predicate") or relation.get("type") or relation.get("relation") or "RELATED_TO"
+        )
+        source_type = relation.get("subject_type") or relation.get("source_type")
+        target_type = relation.get("object_type") or relation.get("target_type")
+        if not self.ontology.validate_relation(rel_type, source_type, target_type):
+            raise Neo4jServiceError(
+                f"Relation {source_type} -{rel_type}-> {target_type} violates ontology domain/range constraints"
+            )
+        relation_id = relation.get("id") or f"{source_id}:{rel_type}:{target_id}"
+        params: dict[str, Any] = {
+            "id": str(relation_id),
+            "source_id": str(source_id),
+            "target_id": str(target_id),
+            "source_snippet": relation.get("source_snippet", ""),
+            "source_document_id": relation.get("source_document_id"),
+            "source_file": relation.get("source_file"),
+            "provenance_json": json_property(relation.get("provenance", {})),
+            "metadata_json": json_property(relation.get("metadata", {})),
+            "confidence": relation.get("confidence"),
+            "evidence_grade": relation.get("evidence_grade"),
+            "ontology_version": self.ontology.version,
+            "status": validation_status(relation),
+        }
+        query = f"""
+        MATCH (source:Entity {{id: $source_id}})
+        MATCH (target:Entity {{id: $target_id}})
+        MERGE (source)-[r:{rel_type} {{id: $id}}]->(target)
+        SET r.source_snippet = $source_snippet,
+            r.source_document_id = $source_document_id,
+            r.source_file = $source_file,
+            r.provenance_json = $provenance_json,
+            r.metadata_json = $metadata_json,
+            r.confidence = $confidence,
+            r.evidence_grade = $evidence_grade,
+            r.ontology_version = $ontology_version,
+            r.status = $status,
+            r.updated_at = datetime()
+        """
+        return [(query, params)]
 
     def graph_snapshot(
         self,
