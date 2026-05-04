@@ -1,4 +1,4 @@
-# FAIR-VCG-mentor
+# FounderGraph-Lab
 
 A local-first, human-in-the-loop Streamlit application that converts raw startup documents into a validated, queryable Neo4j knowledge graph. Every piece of LLM-extracted knowledge passes through an explicit human review gate before entering the graph.
 
@@ -14,6 +14,12 @@ startup files
 
 **Key guarantee:** LLM output never reaches Neo4j without explicit human approval.
 
+## Start here (new users)
+
+Use the step-by-step guide before your first run:
+
+- [Step-by-Step User Guide](STEP_BY_STEP_USER_GUIDE.md)
+
 ---
 
 ## Table of Contents
@@ -23,21 +29,24 @@ startup files
 3. [Ontology](#ontology)
 4. [Services reference](#services-reference)
 5. [Pages reference](#pages-reference)
-6. [Quick start (Docker)](#quick-start-docker)
-7. [Local development](#local-development)
-8. [Initializing the ontology](#initializing-the-ontology-make-init)
-9. [Environment variables](#environment-variables)
-10. [Data layout](#data-layout)
-11. [Running tests](#running-tests)
-12. [Security model](#security-model)
-13. [Validated knowledge pipeline](#validated-knowledge-pipeline)
-14. [Sample data](#sample-data)
+6. [Step-by-step user guide](#step-by-step-user-guide)
+7. [Quick start (Docker)](#quick-start-docker)
+8. [Local development](#local-development)
+9. [Google Drive export pipeline](#google-drive-export-pipeline)
+10. [Initializing the ontology](#initializing-the-ontology)
+11. [Environment variables](#environment-variables)
+12. [Data layout](#data-layout)
+13. [Running tests](#running-tests)
+14. [Security model](#security-model)
+15. [Validated knowledge pipeline](#validated-knowledge-pipeline)
+16. [Future UX TODO (new user comprehension)](#future-ux-todo-new-user-comprehension)
+17. [Sample data](#sample-data)
 
 ---
 
 ## What it does
 
-FAIR-VCG-mentor ingests any combination of pitch decks, business plans, customer interview notes, grant applications, technical roadmaps, and meeting notes, and turns them into a structured graph of startup knowledge:
+FounderGraph-Lab ingests any combination of pitch decks, business plans, customer interview notes, grant applications, technical roadmaps, and meeting notes, and turns them into a structured graph of startup knowledge:
 
 - **Entities** — typed graph nodes (Startup, Founder, Assumption, Evidence, Risk, Milestone, etc.)
 - **Relations** — typed graph edges (TARGETS, SUPPORTED_BY, CONTRADICTED_BY, THREATENS, FUNDS, etc.)
@@ -351,6 +360,15 @@ class LLMService(Protocol):
 | Graph Explorer | `app/pages/04_graph_explorer.py` | Interactive PyVis graph with label/relationship filters |
 | Agents | `app/pages/05_agents.py` | Run audit agents; view and download reports |
 | Exports | `app/pages/06_exports.py` | Generate and download ZIP export bundle |
+| Drive Sync | `app/pages/00_drive_sync.py` | Export Google Drive folder content to local backup files for ingestion |
+
+---
+
+## Step-by-step user guide
+
+For a detailed walkthrough of frontend pages, controls, statuses, and recommended workflow:
+
+- [Step-by-Step User Guide](STEP_BY_STEP_USER_GUIDE.md)
 
 ---
 
@@ -361,15 +379,15 @@ class LLMService(Protocol):
 ```bash
 # 1. Clone and configure
 git clone <repo-url>
-cd FAIR-VCG-mentor-Lab
+cd FounderGraph-Lab
 cp .env.example .env          # edit if needed (default credentials work as-is)
 
 # 2. Start all services
 docker compose up -d --build   # builds app image, starts Neo4j, Qdrant, Ollama, Streamlit
 
 # 3. Pull LLM and embedding models (one-time, ~5 GB)
-docker exec fair_vcg_mentor_ollama ollama pull llama3.1:8b
-docker exec fair_vcg_mentor_ollama ollama pull nomic-embed-text
+docker exec FounderGraph-Lab_ollama ollama pull llama3.1:8b
+docker exec FounderGraph-Lab_ollama ollama pull nomic-embed-text
 
 # 4. (Optional) Customize the ontology for your startup (Bash)
 PYTHONPATH=. python scripts/init_ontology.py
@@ -435,6 +453,52 @@ streamlit run app/main.py
 # Or run a single page directly
 streamlit run app/pages/03_validate_knowledge.py
 ```
+
+---
+
+## Google Drive export pipeline
+
+If your startup source of truth is in Google Drive, export to local files first, then ingest those exported files in the Upload page.
+
+Why this exists:
+
+- The ontology initializer uses documents only for type suggestion during setup and does not persist extracted files.
+- The frontend Upload step is the canonical ingestion path that creates extracted text, Markdown vault files, provenance records, and staging JSON.
+- Keeping these separate preserves a strict setup phase vs. ingestion phase, but this pipeline bridges the gap for Drive-native sources.
+
+### What the export script does
+
+- Recursively crawls a Google Drive folder by folder ID
+- Detects Google-native files by MIME type
+- Exports each file to one or more local formats (for example DOCX, PDF, TXT, XLSX, CSV, PPTX, PNG)
+- Optionally downloads non-Google files in original format
+- Writes `manifest.json` with all exported, skipped, and failed items
+
+Script: `scripts/export_google_drive_folder.py`
+
+### One-time setup
+
+1. Create a Google Cloud project and enable the Google Drive API.
+2. Create a service account key JSON file.
+3. Share the target Drive folder with the service account email.
+4. Install dependencies:
+
+```bash
+pip install -r requirements.txt
+```
+
+### Run export
+
+```bash
+python scripts/export_google_drive_folder.py \
+  --folder-id <DRIVE_FOLDER_ID> \
+  --output-dir data/drive_backup \
+  --service-account-file /path/to/service-account.json \
+  --formats docx,pdf,txt,xlsx,csv,pptx,png \
+  --include-non-google
+```
+
+After export, use Upload -> Ingest folder and point to the exported folder (for example `data/drive_backup`).
 
 ---
 
@@ -607,9 +671,30 @@ This section summarises the integrity guarantees that hold across the full pipel
 
 ---
 
+## Future UX TODO (new user comprehension)
+
+- [ ] Add a setup checklist on Home (Neo4j, Ollama, Qdrant, models pulled)
+- [ ] Add guided mode banner with current step and next action
+- [ ] Add contextual empty-state actions (go to Upload, extract latest doc)
+- [ ] Add status legend in Validate Knowledge with decision examples
+- [ ] Add evidence-grade rubric tooltip (direct quote/paraphrase/inference/speculation)
+- [ ] Add post-action "next step" call-to-action buttons
+- [ ] Add one-click quickstart sample flow
+- [ ] Add confirmation modal before writing validated JSON to Neo4j
+- [ ] Harmonize terminology across pages (candidate, validated, written)
+- [ ] Add extraction progress ETA for batch operations
+
+---
+
 ## Sample data
 
 `sample_data/` contains documents for a fictional metadata interoperability startup (Metadatapp) for preclinical research:
+
+It also contains a richer live-demo dataset for a fictional clinical trial startup workflow company:
+
+- `trialmesh/` — a multi-folder dataset with strategy, customer interviews, product specs, evidence, finance, regulatory, partnerships, and operations artifacts
+
+Recommended for demos that need more realistic folder structure, conflicting evidence, and broader entity/relation coverage.
 
 | File | Type |
 |---|---|
@@ -620,6 +705,7 @@ This section summarises the integrity guarantees that hold across the full pipel
 | `customer_interview_cro_01.docx` | Customer interview — CRO |
 | `customer_interview_academic_lab_01.docx` | Customer interview — academic lab |
 | `metadatapp/graph.json` | Pre-built graph snapshot for the sample startup |
+| `trialmesh/README.md` | Rich live-demo dataset guide |
 
 To run the demo:
 

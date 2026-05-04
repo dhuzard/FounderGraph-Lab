@@ -1,0 +1,9 @@
+metric,period,value,unit,notes
+pilot_cycle_time_reduction,Q2-2026,23,percent,Bluehaven oncology pilot
+missing_evidence_request_reduction,Q2-2026,31,percent,Compared with prior startup packet
+review_meeting_reduction,Q2-2026,3,meetings,Reduction from 9 to 6
+avg_doc_lookup_time_before,Q2-2026,18,minutes,Interview-based estimate
+avg_doc_lookup_time_after,Q2-2026,4,minutes,Pilot observation
+design_partner_nps,Q2-2026,46,score,Small sample of startup leads
+paid_pilot_count,Q2-2026,2,count,One sponsor and one CRO
+pipeline_enterprise_accounts,Q2-2026,11,count,Qualified opportunities

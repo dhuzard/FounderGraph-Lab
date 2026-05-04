@@ -1,0 +1,15 @@
+Interview: Elena Sokolov, Program Director at specialty CRO
+Date: 2026-04-28
+
+We lose credibility when sponsors ask for a blocker explanation and our team has status but not the evidence attached. People say they want AI, but what they actually want is confidence that the packet is complete.
+
+If TrialMesh works, it should do three things:
+- show dependency chains clearly
+- separate sponsor blockers from CRO blockers
+- generate an export I can send without editing for an hour
+
+Buying signal:
+If a pilot shows faster steering committee prep with less manual reconciliation, I can justify budget.
+
+Warning:
+If the graph becomes too abstract for startup managers, adoption will stall. They think in packets, owners, deadlines, and escalations.

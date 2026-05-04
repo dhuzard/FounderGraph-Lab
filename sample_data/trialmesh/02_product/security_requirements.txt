@@ -1,0 +1,14 @@
+Security requirements draft
+
+Required for enterprise pilot acceptance:
+- Okta SSO or Microsoft Entra ID SAML support
+- role-based access with workspace and document scope
+- immutable audit trail for graph writes and exports
+- configurable retention and deletion policy
+- local-first deployment path with no external LLM dependency
+- redaction workflow for mixed-sensitivity documents
+
+Open questions:
+- whether sponsor security teams require customer-managed encryption keys
+- whether extracted snippets can be retained for all user roles
+- whether Qdrant storage needs workspace-specific isolation controls

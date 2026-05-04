@@ -9,6 +9,7 @@ except ImportError:  # pragma: no cover
 
 from app.services.extractors import GOOGLE_WORKSPACE_SHORTCUTS, SUPPORTED_EXTENSIONS, is_supported_file
 from app.services.file_store import FileStoreError, ingest_document
+from app.services.init_bridge import load_init_bridge, save_init_bridge
 
 
 def _ingest_file_from_path(file_path: Path) -> tuple[bool, str]:
@@ -45,6 +46,24 @@ def main() -> None:
 
     st.set_page_config(page_title="Upload Documents", page_icon="FG", layout="wide")
     st.title("Document Upload")
+
+    bridge = load_init_bridge()
+    prefilled_folder = ""
+    query_prefill = str(st.query_params.get("ingest_folder", "")).strip() if hasattr(st, "query_params") else ""
+    if query_prefill:
+        prefilled_folder = query_prefill
+    elif bridge.get("source_folder"):
+        prefilled_folder = str(bridge.get("source_folder", ""))
+
+    if prefilled_folder:
+        st.info(f"Prefilled from Init: {prefilled_folder}")
+
+    if bridge.get("show_drive_cta", False):
+        if st.button("Export from Drive and ingest now", type="secondary"):
+            try:
+                st.switch_page("pages/00_drive_sync.py")
+            except Exception:
+                st.warning("Open 'Drive Sync' from the sidebar.")
 
     tab_files, tab_folder = st.tabs(["Upload files", "Ingest folder"])
 
@@ -97,6 +116,7 @@ def main() -> None:
 
         folder_input = st.text_input(
             "Folder path",
+            value=prefilled_folder,
             placeholder="/docs  or  /home/user/startup-files",
         )
 
@@ -152,6 +172,12 @@ def main() -> None:
                     with st.expander("Details", expanded=fail_count > 0):
                         for icon, name, msg in results_log:
                             st.write(f"{icon} **{name}** — {msg}")
+
+                    save_init_bridge(
+                        source_folder=str(folder),
+                        note="Upload page ingested folder successfully.",
+                        show_drive_cta=False,
+                    )
 
 
 if __name__ == "__main__":

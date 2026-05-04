@@ -1,0 +1,8 @@
+line_item,2026_Q3,2026_Q4,2027_Q1,2027_Q2,notes
+paid_pilots,2,3,4,5,Assumes 60 percent conversion from design partners
+enterprise_conversions,0,0,1,2,Northstar-backed sponsor pipeline assumption
+average_pilot_acv,35000,35000,38000,40000,Shorter onboarding for local-first deployment
+average_enterprise_acv,0,0,180000,210000,Requires SSO and audit export package
+gross_margin,0.62,0.64,0.68,0.71,Improves after ingestion pipeline stabilizes
+monthly_burn,165000,172000,181000,194000,Includes 2 compliance hires in 2027
+runway_months,18,16,14,12,Bridge financing likely needed without enterprise conversion

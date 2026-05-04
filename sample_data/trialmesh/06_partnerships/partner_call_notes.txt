@@ -1,0 +1,16 @@
+Partner call notes - Meridian Trial Consulting
+
+Meridian sees demand from sponsors that cannot justify a full platform transformation but urgently need startup clarity.
+
+They believe TrialMesh could be introduced as:
+- startup evidence layer
+- amendment impact tracker
+- diligence packet generator for steering committees
+
+Conditions for partnership:
+- sponsor-safe deployment pattern
+- clear ownership model for uploaded vendor docs
+- export package that can be attached to sponsor reviews
+
+Potential joint experiment:
+Run a 30-day trial startup readiness sprint on one hematology study and compare blocker resolution speed.

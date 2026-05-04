@@ -1,0 +1,23 @@
+Interview: Helena Brooks, Senior Director of Site Operations, mid-size oncology sponsor
+Date: 2026-04-10
+Interviewer: Priya Raman
+
+Q: What is hardest during startup?
+A: Not the work itself. It is proving the work is done. We have training trackers, regulatory packets, contract status, and vendor confirmations in four or five places. When the VP asks whether Germany can move forward, the answer depends on which spreadsheet is newest.
+
+Q: What would make you buy?
+A: If you can show me a milestone map where every blocker has linked evidence and owner, I would take that to my VP. If it is just another summary chatbot, no.
+
+Q: What is the measurable value?
+A: Every startup review meeting with 12 people costs real money. If you cut two meetings per country and reduce back-and-forth on missing docs, that is meaningful. A 15 to 20 percent cycle-time improvement would get attention.
+
+Q: What are adoption blockers?
+A: Security review, redaction, role-based access, and whether sites can share safely without exposing unrelated study docs.
+
+Q: Competitors or substitutes?
+A: Mostly Veeva, SharePoint, and heroic project managers.
+
+Notes:
+- Strong evidence for problem around stale trackers and missing proof.
+- Strong signal that provenance and linked evidence matter more than generic summarization.
+- Suggests milestone tracking, ownership, and country-specific blockers are high-value features.

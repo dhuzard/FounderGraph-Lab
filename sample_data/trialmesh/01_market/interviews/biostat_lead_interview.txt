@@ -1,0 +1,19 @@
+Interview: Omar El-Amin, Biostatistics Lead advising rare disease sponsor
+Date: 2026-04-18
+
+The stats team gets pulled into startup late when assumptions have already solidified. Trial startup plans often assume recruitment materials, training evidence, and protocol clarifications are aligned, but there is no evidence chain.
+
+If TrialMesh can connect assumptions to evidence and flag contradictions early, that is useful. I would want to see:
+
+- explicit source snippets
+- document version lineage
+- why a risk is open
+- what experiment would reduce uncertainty
+
+Concerns:
+- if the system encourages hallucinated relationships, trust will collapse
+- if there is no review gate, legal and QA will reject it immediately
+- if search is weak, people will go back to SharePoint
+
+Interesting angle:
+Grant-funded translational programs often have chaotic startup evidence because they inherit documents from multiple institutions. A product that structures that mess could fit public funding applications.

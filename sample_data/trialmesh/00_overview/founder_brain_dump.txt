@@ -1,0 +1,22 @@
+Founder voice memo notes - cleaned transcript
+
+We are not trying to replace CTMS, eTMF, or quality systems. TrialMesh sits in the messy middle between planning and audit readiness.
+
+The clearest problem we keep hearing is that startup managers know work is done, but cannot prove it fast enough. They need one place to connect protocol assumptions, evidence, milestones, vendors, and blockers.
+
+I think the strongest wedge is oncology programs with multiple countries and many external vendors. The value is biggest when protocol amendments hit and every tracker goes stale.
+
+Biggest risks:
+- buyers may still default to Veeva modules already under enterprise agreement
+- enterprise security review could stall pilots for 90 days
+- if we do not solve document lineage, users will see us as another dashboard layer
+
+Possible experiments:
+- compare startup readiness review time before and after TrialMesh in one sponsor team
+- test whether CRO directors will upload their own trackers if we offer local-first install
+- run a protocol-amendment simulation with Meridian Trial Consulting
+
+What success looks like by year end:
+- 3 lighthouse customers
+- one oncology sponsor expansion
+- evidence-based case study showing 21 percent faster package completion

@@ -1,0 +1,12 @@
+Contradiction log from internal review
+
+1. Marketing claims 21 percent startup acceleration. Pilot write-up currently shows 23 percent prep time reduction, not end-to-end startup acceleration. This must be clarified.
+
+2. Sales deck says local-first deployment removes security blockers. Interview notes indicate security review still remains a major barrier unless redaction and RBAC are mature.
+
+3. Product spec assumes Microsoft 365 integration is optional. Three design partners called it mandatory for initial rollout.
+
+4. Financial plan assumes one sponsor converts to enterprise in month 10. Current pipeline evidence does not clearly support that timing.
+
+Recommendation:
+Mark aggressive claims as needs_review or needs_more_evidence until explicit proof is linked.

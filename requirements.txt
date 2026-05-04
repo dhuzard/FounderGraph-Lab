@@ -18,3 +18,5 @@ langgraph>=0.2.0,<1
 langchain-core>=0.2.0,<1
 pytest>=8.2.0,<9
 ruff>=0.4.0,<1
+google-api-python-client>=2.151.0,<3
+google-auth>=2.35.0,<3

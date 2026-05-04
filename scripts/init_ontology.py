@@ -23,8 +23,10 @@ import json
 import os
 import sys
 import textwrap
+import webbrowser
 import urllib.error
 import urllib.request
+from urllib.parse import quote
 from pathlib import Path
 
 # Ensure project root is on sys.path when run as a script.
@@ -38,6 +40,8 @@ from app.services.ontology_service import (
     load_ontology,
     save_ontology,
 )
+from app.services.file_store import FileStoreError, ingest_document
+from app.services.init_bridge import save_init_bridge
 
 # ---------------------------------------------------------------------------
 # Terminal formatting helpers
@@ -504,6 +508,22 @@ def banner() -> None:
         "All extraction, validation, and Neo4j writes will use your custom schema.",
         indent=2,
     ))
+    print()
+    warn("Init is used for ontology suggestions/configuration only by default, not ingestion.")
+    warn("You can optionally ingest analyzed files into the vault in a later prompt.")
+
+
+def ingest_files_to_vault(files: list[Path]) -> tuple[int, int]:
+    ok_count = 0
+    fail_count = 0
+    for path in files:
+        try:
+            with path.open("rb") as fh:
+                ingest_document(fh, filename=path.name)
+            ok_count += 1
+        except (FileStoreError, OSError):
+            fail_count += 1
+    return ok_count, fail_count
 
 
 def main(args: argparse.Namespace) -> None:
@@ -561,6 +581,11 @@ def main(args: argparse.Namespace) -> None:
             else:
                 warn(f"{f.name} → {char_count} chars (skipped — too short)")
 
+    should_ingest = ask_yn(
+        "Also ingest analyzed documents into vault now?",
+        default=False,
+    )
+
     # ── Phase 4: LLM analysis ──────────────────────────────────────────────
     section("4 / 6  LLM Analysis")
     ollama_url = os.getenv("OLLAMA_URL", "http://localhost:11434").rstrip("/")
@@ -603,8 +628,41 @@ def main(args: argparse.Namespace) -> None:
     yaml_path = save_ontology(config)
     ok(f"Ontology saved → {yaml_path.relative_to(_PROJECT_ROOT)}")
 
+    bridge_path = save_init_bridge(
+        source_folder=str(doc_path),
+        note="Init completed. Use Upload -> Ingest folder with this path.",
+        show_drive_cta=True,
+    )
+    ok(f"Saved init bridge context → {bridge_path.relative_to(_PROJECT_ROOT)}")
+
+    if should_ingest and files:
+        section("Optional ingestion")
+        ok_count, fail_count = ingest_files_to_vault(files)
+        ok(f"Ingested {ok_count} file(s) into vault.")
+        if fail_count:
+            warn(f"{fail_count} file(s) failed to ingest.")
+
     if ask_yn("\nInitialize Neo4j schema now? (requires `make up`)", default=False):
         init_neo4j_schema(config)
+
+    app_url = os.getenv("FOUNDERGRAPH_APP_URL", "http://localhost:8501").rstrip("/")
+    upload_url = f"{app_url}/?ingest_folder={quote(str(doc_path))}"
+
+    if ask_yn("\nOpen Upload prefilled with this folder path now?", default=False):
+        try:
+            webbrowser.open(upload_url)
+            ok("Opened browser to app URL with prefilled ingest path.")
+        except Exception as exc:
+            warn(f"Could not open browser automatically: {exc}")
+            warn(f"Open manually: {upload_url}")
+
+    if ask_yn("\nOpen Drive Sync now to export from Drive and ingest?", default=False):
+        try:
+            webbrowser.open(f"{app_url}/")
+            ok("Opened app. Use sidebar -> Drive Sync.")
+        except Exception as exc:
+            warn(f"Could not open browser automatically: {exc}")
+            warn(f"Open manually: {app_url}")
 
     print()
     hr("═")
@@ -613,7 +671,8 @@ def main(args: argparse.Namespace) -> None:
     print("  Next steps:")
     print("    1.  make up              — start all services")
     print("    2.  Open http://localhost:8501")
-    print("    3.  Upload → Extract → Validate → Graph → Agents")
+    print("    3.  (Optional) Drive Sync → Upload → Extract → Validate → Graph → Agents")
+    print(f"    4.  One-click Upload bridge URL: {upload_url}")
     hr("═")
     print()
 

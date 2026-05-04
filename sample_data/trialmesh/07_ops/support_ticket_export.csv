@@ -1,0 +1,5 @@
+ticket_id,created_at,customer,category,priority,summary,root_cause,status
+SUP-101,2026-04-21,Bluehaven Oncology,permissions,high,Users could not isolate investigator packet from broader workspace,missing role-scoped document filter,resolved
+SUP-104,2026-04-24,Meridian Trial Consulting,ingestion,medium,HTML export from sponsor portal lost section headings,no structure-preserving parser for that portal format,open
+SUP-109,2026-05-01,Bluehaven Oncology,search,high,Semantic search returned generic snippets for protocol amendment questions,chunking strategy too broad for amendment memo format,open
+SUP-112,2026-05-02,Internal Demo,export,medium,Risk register export omitted mitigation owner in one edge case,csv mapping bug,in_progress

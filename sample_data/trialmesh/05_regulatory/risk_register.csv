@@ -1,0 +1,6 @@
+risk_id,risk,severity,probability,owner,mitigation,status
+R-001,Enterprise security review delays first sponsor rollout,high,high,Daniel Ortega,Ship local-first deployment plus SSO roadmap,open
+R-002,Marketing claims exceed available evidence,high,medium,Maya Chen,Add review gate for external claims and proof links,open
+R-003,Microsoft 365 integration takes longer than planned,medium,high,Platform Team,Limit initial scope to read-only ingest and metadata mapping,open
+R-004,Qdrant retrieval quality weak on noisy folders,medium,medium,Priya Raman,Improve chunking and add curated demo folder patterns,open
+R-005,Regulated buyers reject product without validation package,high,medium,Compliance Advisor,Produce validation narrative and control documentation,open
