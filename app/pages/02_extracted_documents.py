@@ -69,7 +69,14 @@ else:
             except LLMServiceError as exc:
                 st.error(f"LLM extraction failed: {exc}")
     with col_batch:
-        batch_size = st.number_input("Batch latest documents", min_value=1, max_value=50, value=5, step=1)
+        batch_size = st.number_input(
+            "Batch latest documents",
+            min_value=1,
+            max_value=max(1, len(markdown_files)),
+            value=min(10, len(markdown_files)),
+            step=1,
+            help="Long documents are extracted in chunks so larger batches can produce many candidates.",
+        )
         if st.button("Extract batch"):
             totals = {"entities": 0, "relations": 0, "failed": 0}
             progress = st.progress(0.0)

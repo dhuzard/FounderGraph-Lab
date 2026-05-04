@@ -7,13 +7,13 @@ from app.config import ensure_json_files
 
 def main() -> None:
     ensure_json_files()
-    st.set_page_config(page_title="FounderGraph Lab", page_icon="FG", layout="wide")
-    st.title("FounderGraph Lab")
+    st.set_page_config(page_title="FAIR-VCG-mentor", page_icon="FG", layout="wide")
+    st.title("FAIR-VCG-mentor")
     st.caption("Local-first startup knowledge graph lab")
 
     st.markdown(
         """
-        FounderGraph Lab turns startup documents into validated, reusable knowledge.
+        FAIR-VCG-mentor turns startup documents into validated, reusable knowledge.
 
         Core loop:
         `files -> extraction -> Markdown vault -> candidate entities -> human validation -> Neo4j -> Qdrant -> audit agents`

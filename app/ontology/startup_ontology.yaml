@@ -1,6 +1,6 @@
 version: "1.0.0"
 updated_at: "2026-05-03"
-description: "FounderGraph Lab startup knowledge ontology"
+description: "FAIR-VCG-mentor startup knowledge ontology"
 
 classes:
   Startup:

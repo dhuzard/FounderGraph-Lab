@@ -1,4 +1,4 @@
-"""Qdrant vector indexing and search helpers for FounderGraph Lab.
+"""Qdrant vector indexing and search helpers for FAIR-VCG-mentor.
 
 The module intentionally has no hard dependency on qdrant-client or requests.
 It talks to Qdrant and Ollama over HTTP and degrades to explicit unavailable

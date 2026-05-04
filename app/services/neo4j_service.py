@@ -1,4 +1,4 @@
-"""Safe Neo4j graph persistence for validated FounderGraph knowledge."""
+"""Safe Neo4j graph persistence for validated FAIR-VCG-mentor knowledge."""
 
 from __future__ import annotations
 
