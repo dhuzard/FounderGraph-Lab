@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import re
 from pathlib import Path
+from typing import Any
 
 import streamlit as st
 
@@ -52,22 +53,30 @@ else:
             return extracted_path.read_text(encoding="utf-8")
         return re.sub(r"^---.*?---", "", markdown, flags=re.DOTALL).strip()
 
-    def _extract_one(path: Path) -> tuple[int, int]:
+    def _extract_one(path: Path, status_container: Any = None) -> tuple[int, int]:
         markdown = path.read_text(encoding="utf-8")
+
+        def _on_progress(message: str) -> None:
+            if status_container is not None:
+                status_container.update(label=message)
+
         result = EntityExtractor().extract_to_staging(
             _text_for_extraction(path, markdown),
             _metadata_from_markdown(path, markdown),
+            progress_callback=_on_progress,
         )
         return len(result.entities), len(result.relations)
 
     col_selected, col_batch = st.columns([1, 1])
     with col_selected:
         if st.button("Extract selected document", type="primary"):
-            try:
-                entity_count, relation_count = _extract_one(Path(selected))
-                st.success(f"Staged {entity_count} entities and {relation_count} relations.")
-            except LLMServiceError as exc:
-                st.error(f"LLM extraction failed: {exc}")
+            with st.status("Starting extraction…", expanded=True) as status:
+                try:
+                    entity_count, relation_count = _extract_one(Path(selected), status_container=status)
+                    status.update(label=f"Done — {entity_count} entities, {relation_count} relations", state="complete")
+                except LLMServiceError as exc:
+                    status.update(label="Extraction failed", state="error")
+                    st.error(f"LLM extraction failed: {exc}")
     with col_batch:
         batch_size = st.number_input(
             "Batch latest documents",

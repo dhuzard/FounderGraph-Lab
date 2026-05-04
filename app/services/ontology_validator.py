@@ -57,7 +57,8 @@ class OntologyLoader:
 
     def required_fields(self, entity_type: str) -> list[str]:
         classes = self._data.get("classes", {})
-        return list(classes.get(entity_type, {}).get("required_fields", []))
+        cls = classes.get(entity_type, {})
+        return list(cls.get("required_fields") or cls.get("fields", []))
 
     def validate_relation(
         self,

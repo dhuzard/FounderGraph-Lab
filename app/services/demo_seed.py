@@ -12,7 +12,7 @@ def _now() -> str:
     return datetime.now(UTC).isoformat()
 
 
-DEMO_ENTITIES: list[dict[str, Any]] = [
+_DEMO_ENTITY_TEMPLATES: list[dict[str, Any]] = [
     {
         "id": "CUST-CRO-001",
         "type": "CustomerSegment",
@@ -24,8 +24,6 @@ DEMO_ENTITIES: list[dict[str, Any]] = [
         "confidence": "high",
         "validation_status": "pending",
         "tags": ["customer"],
-        "created_at": _now(),
-        "updated_at": _now(),
     },
     {
         "id": "PROB-META-001",
@@ -38,8 +36,6 @@ DEMO_ENTITIES: list[dict[str, Any]] = [
         "confidence": "high",
         "validation_status": "pending",
         "tags": ["metadata", "interoperability"],
-        "created_at": _now(),
-        "updated_at": _now(),
     },
     {
         "id": "FEAT-MAP-001",
@@ -52,8 +48,6 @@ DEMO_ENTITIES: list[dict[str, Any]] = [
         "confidence": "medium",
         "validation_status": "pending",
         "tags": ["product"],
-        "created_at": _now(),
-        "updated_at": _now(),
     },
     {
         "id": "ASSUMP-WTP-001",
@@ -66,8 +60,6 @@ DEMO_ENTITIES: list[dict[str, Any]] = [
         "confidence": "medium",
         "validation_status": "pending",
         "tags": ["pricing", "gtm"],
-        "created_at": _now(),
-        "updated_at": _now(),
     },
     {
         "id": "ASSUMP-AI-001",
@@ -80,8 +72,6 @@ DEMO_ENTITIES: list[dict[str, Any]] = [
         "confidence": "medium",
         "validation_status": "pending",
         "tags": ["pharma", "ai-readiness"],
-        "created_at": _now(),
-        "updated_at": _now(),
     },
     {
         "id": "EVID-CRO-001",
@@ -94,8 +84,6 @@ DEMO_ENTITIES: list[dict[str, Any]] = [
         "confidence": "high",
         "validation_status": "pending",
         "tags": ["interview"],
-        "created_at": _now(),
-        "updated_at": _now(),
     },
     {
         "id": "EVID-PHARMA-001",
@@ -108,8 +96,6 @@ DEMO_ENTITIES: list[dict[str, Any]] = [
         "confidence": "medium",
         "validation_status": "pending",
         "tags": ["stakeholder"],
-        "created_at": _now(),
-        "updated_at": _now(),
     },
     {
         "id": "RISK-SALES-001",
@@ -122,8 +108,6 @@ DEMO_ENTITIES: list[dict[str, Any]] = [
         "confidence": "medium",
         "validation_status": "pending",
         "tags": ["sales"],
-        "created_at": _now(),
-        "updated_at": _now(),
     },
     {
         "id": "RISK-INT-001",
@@ -136,12 +120,10 @@ DEMO_ENTITIES: list[dict[str, Any]] = [
         "confidence": "high",
         "validation_status": "pending",
         "tags": ["technical"],
-        "created_at": _now(),
-        "updated_at": _now(),
     },
 ]
 
-DEMO_RELATIONS: list[dict[str, Any]] = [
+_DEMO_RELATION_TEMPLATES: list[dict[str, Any]] = [
     {
         "id": "REL-CRO-PROB-001",
         "subject_id": "CUST-CRO-001",
@@ -154,8 +136,6 @@ DEMO_RELATIONS: list[dict[str, Any]] = [
         "source_snippet": "The team loses metadata between the LIMS, spreadsheets, and study reports.",
         "confidence": "high",
         "validation_status": "pending",
-        "created_at": _now(),
-        "updated_at": _now(),
     },
     {
         "id": "REL-FEAT-PROB-001",
@@ -169,8 +149,6 @@ DEMO_RELATIONS: list[dict[str, Any]] = [
         "source_snippet": "A lightweight metadata layer that maps experimental context across study planning.",
         "confidence": "medium",
         "validation_status": "pending",
-        "created_at": _now(),
-        "updated_at": _now(),
     },
     {
         "id": "REL-ASSUMP-EVID-001",
@@ -184,8 +162,6 @@ DEMO_RELATIONS: list[dict[str, Any]] = [
         "source_snippet": "A pharma stakeholder asked for better provenance before approving AI-readiness pilots.",
         "confidence": "medium",
         "validation_status": "pending",
-        "created_at": _now(),
-        "updated_at": _now(),
     },
 ]
 
@@ -193,8 +169,11 @@ DEMO_RELATIONS: list[dict[str, Any]] = [
 def seed_demo_candidates(overwrite: bool = False) -> tuple[Path, Path]:
     CANDIDATE_ENTITIES_JSON.parent.mkdir(parents=True, exist_ok=True)
     CANDIDATE_RELATIONS_JSON.parent.mkdir(parents=True, exist_ok=True)
+    now = _now()
     if overwrite or not CANDIDATE_ENTITIES_JSON.exists():
-        CANDIDATE_ENTITIES_JSON.write_text(json.dumps(DEMO_ENTITIES, indent=2) + "\n", encoding="utf-8")
+        entities = [{**e, "created_at": now, "updated_at": now} for e in _DEMO_ENTITY_TEMPLATES]
+        CANDIDATE_ENTITIES_JSON.write_text(json.dumps(entities, indent=2) + "\n", encoding="utf-8")
     if overwrite or not CANDIDATE_RELATIONS_JSON.exists():
-        CANDIDATE_RELATIONS_JSON.write_text(json.dumps(DEMO_RELATIONS, indent=2) + "\n", encoding="utf-8")
+        relations = [{**r, "created_at": now, "updated_at": now} for r in _DEMO_RELATION_TEMPLATES]
+        CANDIDATE_RELATIONS_JSON.write_text(json.dumps(relations, indent=2) + "\n", encoding="utf-8")
     return CANDIDATE_ENTITIES_JSON, CANDIDATE_RELATIONS_JSON

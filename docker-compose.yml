@@ -18,13 +18,16 @@ services:
       - EMBEDDING_MODEL=${EMBEDDING_MODEL:-nomic-embed-text}
       - PYTHONPATH=/app
     depends_on:
-      - neo4j
-      - qdrant
-      - ollama
+      neo4j:
+        condition: service_healthy
+      qdrant:
+        condition: service_started
+      ollama:
+        condition: service_started
     command: streamlit run app/main.py --server.address=0.0.0.0 --server.port=8501
 
   neo4j:
-    image: neo4j:community
+    image: neo4j:5.20-community
     container_name: foundergraph_lab_neo4j
     ports:
       - "7474:7474"
@@ -36,6 +39,12 @@ services:
     volumes:
       - neo4j_data:/data
       - neo4j_logs:/logs
+    healthcheck:
+      test: ["CMD", "cypher-shell", "-u", "${NEO4J_USER:-neo4j}", "-p", "${NEO4J_PASSWORD:-foundergraph_password}", "RETURN 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
 
   qdrant:
     image: qdrant/qdrant
