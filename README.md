@@ -365,13 +365,23 @@ cd FAIR-VCG-mentor-Lab
 cp .env.example .env          # edit if needed (default credentials work as-is)
 
 # 2. Start all services
-make up                        # builds app image, starts Neo4j, Qdrant, Ollama, Streamlit
+docker compose up -d --build   # builds app image, starts Neo4j, Qdrant, Ollama, Streamlit
 
 # 3. Pull LLM and embedding models (one-time, ~5 GB)
-make pull-models               # pulls llama3.1:8b and nomic-embed-text into Ollama
+docker exec fair_vcg_mentor_ollama ollama pull llama3.1:8b
+docker exec fair_vcg_mentor_ollama ollama pull nomic-embed-text
 
-# 4. (Optional) Customize the ontology for your startup
-make init
+# 4. (Optional) Customize the ontology for your startup (Bash)
+PYTHONPATH=. python scripts/init_ontology.py
+```
+
+If you use Windows PowerShell and do not have GNU Make installed, use the commands above directly.
+
+PowerShell equivalent for step 4:
+
+```powershell
+$env:PYTHONPATH='.'
+python scripts/init_ontology.py
 ```
 
 Services:
@@ -384,12 +394,27 @@ Services:
 | Qdrant dashboard | http://localhost:6333 | Vector store UI |
 | Ollama API | http://localhost:11434 | Local LLM API |
 
-Other make targets:
+Optional Make shortcuts (Linux/macOS/WSL or Windows with Make installed):
 
 ```bash
+make up            # docker compose up -d --build
+make pull-models   # docker exec ... ollama pull ...
+make init          # python scripts/init_ontology.py
 make down          # stop all containers
 make logs          # tail all container logs
 ```
+
+### Troubleshooting: "make up" does not work on Windows
+
+If you see `make: The term 'make' is not recognized`, GNU Make is not installed in your shell.
+
+Use this equivalent command instead:
+
+```bash
+docker compose up -d --build
+```
+
+You can continue using `docker compose ...` commands directly, or install Make (`choco install make` or `scoop install make`) if you prefer Make targets.
 
 ---
 
@@ -413,13 +438,24 @@ streamlit run app/pages/03_validate_knowledge.py
 
 ---
 
-## Initializing the ontology (`make init`)
+## Initializing the ontology
 
 Run once (or whenever the startup's domain evolves) to configure entity types and relation predicates for your specific context:
 
+On Bash (Linux/macOS/WSL):
+
 ```bash
-make init
+PYTHONPATH=. python scripts/init_ontology.py
 ```
+
+On Windows PowerShell:
+
+```powershell
+$env:PYTHONPATH='.'
+python scripts/init_ontology.py
+```
+
+If you have GNU Make available, `make init` is an equivalent shortcut.
 
 The CLI walks through six phases:
 
@@ -430,7 +466,7 @@ The CLI walks through six phases:
 5. **Relation review** — proposes new predicates; you confirm or skip
 6. **Save + schema init** — writes `startup_ontology.yaml` atomically; optionally initializes Neo4j constraints and indexes
 
-After `make init`, any new entity types are automatically included in the LLM extraction prompt and enforced in the Neo4j allowlist — no code changes needed.
+After initialization, any new entity types are automatically included in the LLM extraction prompt and enforced in the Neo4j allowlist — no code changes needed.
 
 ---
 
