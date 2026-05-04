@@ -383,7 +383,7 @@ with tab_entities:
             if st.button("Approve all pending", key="approve_all_entities"):
                 updated = _apply_bulk_status(all_entities, "validated", only_if_status="pending")
                 store.save_entities(updated)
-                st.success(f"Approved all pending entities.")
+                st.success("Approved all pending entities.")
                 st.rerun()
         with col_reject:
             if st.button("Reject all low-grade", key="reject_low_entities"):

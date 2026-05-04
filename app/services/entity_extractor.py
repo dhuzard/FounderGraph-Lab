@@ -13,7 +13,7 @@ from typing import Any, Iterable
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
 
-from app.services.llm_service import LLMInvalidJSONError, LLMService, LLMServiceError, OllamaLLMService
+from app.services.llm_service import LLMInvalidJSONError, LLMService, OllamaLLMService
 
 
 try:  # Integrator-owned shared models may be added later.

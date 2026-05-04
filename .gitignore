@@ -6,7 +6,11 @@ __pycache__/
 venv/
 
 .env
+.env.local
 .codex
+
+# Google service account credentials (never commit)
+secrets/
 
 data/original_files/*
 data/extracted_text/*

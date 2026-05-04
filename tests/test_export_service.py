@@ -19,7 +19,6 @@ import pytest
 
 from app.services.export_service import (
     assumptions_rows,
-    create_manifest,
     evidence_matrix_rows,
     export_all,
     graph_to_jsonld,

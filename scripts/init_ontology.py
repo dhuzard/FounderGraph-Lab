@@ -33,16 +33,15 @@ from pathlib import Path
 _PROJECT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(_PROJECT_ROOT))
 
-from app.services.ontology_service import (
+from app.services.ontology_service import (  # noqa: E402
     EntityClassDef,
     OntologyConfig,
-    RelationDef,
     load_ontology,
     save_ontology,
 )
-from app.services.file_store import FileStoreError, ingest_document
-from app.services.init_bridge import save_init_bridge
-from scripts.reset_demo_state import reset_demo_state
+from app.services.file_store import FileStoreError, ingest_document  # noqa: E402
+from app.services.init_bridge import save_init_bridge  # noqa: E402
+from scripts.reset_demo_state import reset_demo_state  # noqa: E402
 
 # ---------------------------------------------------------------------------
 # Terminal formatting helpers
@@ -112,7 +111,7 @@ def ask_choice(prompt: str, options: list[tuple[str, str]], default: str = "1") 
     print(f"\n  {_c(prompt, BOLD)}")
     for key, label in options:
         print(f"    {_c(key + ')', DIM)} {label}")
-    display = f"  > "
+    display = "  > "
     try:
         value = input(display).strip()
     except (EOFError, KeyboardInterrupt):
@@ -126,7 +125,7 @@ def ask_multi(prompt: str, options: list[tuple[str, str]], defaults: str = "") -
     print(_c("  (comma-separated numbers, e.g. 1,3,4)", DIM))
     for key, label in options:
         print(f"    {_c(key + ')', DIM)} {label}")
-    display = f"  > "
+    display = "  > "
     try:
         raw = input(display).strip()
     except (EOFError, KeyboardInterrupt):
@@ -418,7 +417,7 @@ def review_entity_types(
             if action.startswith("n"):
                 continue
             if action.startswith("r"):
-                sname = ask(f"  Name:", default=sname).strip() or sname
+                sname = ask("  Name:", default=sname).strip() or sname
             kept[sname] = EntityClassDef(description=sdesc)
             ok(f"Added {sname}")
 
@@ -470,7 +469,6 @@ def init_neo4j_schema(config: OntologyConfig) -> None:
     neo4j_user = os.getenv("NEO4J_USER", "neo4j")
     neo4j_password = os.getenv("NEO4J_PASSWORD", "foundergraph_password")
     try:
-        from neo4j import GraphDatabase
         from app.services.neo4j_service import Neo4jService, Neo4jConfig
     except ImportError:
         err("neo4j package not installed — skipping schema init.")

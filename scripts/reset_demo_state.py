@@ -4,7 +4,6 @@
 from __future__ import annotations
 
 import argparse
-import json
 import shutil
 from dataclasses import dataclass
 from datetime import datetime

@@ -378,7 +378,7 @@ For a detailed walkthrough of frontend pages, controls, statuses, and recommende
 
 ```bash
 # 1. Clone and configure
-git clone <repo-url>
+git clone https://github.com/dhuzard/FounderGraph-Lab.git
 cd FounderGraph-Lab
 cp .env.example .env          # edit if needed (default credentials work as-is)
 

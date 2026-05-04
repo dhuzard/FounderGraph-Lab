@@ -193,7 +193,7 @@ def _extract_pdf(path: Path) -> str:
         text = "\n\n".join(page.strip() for page in pages if page.strip())
         if text:
             return text
-    except ImportError as exc:
+    except ImportError:
         errors.append("pdfplumber unavailable")
     except Exception as exc:
         errors.append(f"pdfplumber failed: {exc}")

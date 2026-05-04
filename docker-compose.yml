@@ -10,12 +10,12 @@ services:
       - ./app:/app/app
     environment:
       - NEO4J_URI=bolt://neo4j:7687
-      - NEO4J_USER=neo4j
-      - NEO4J_PASSWORD=foundergraph_password
+      - NEO4J_USER=${NEO4J_USER:-neo4j}
+      - NEO4J_PASSWORD=${NEO4J_PASSWORD:-foundergraph_password}
       - QDRANT_URL=http://qdrant:6333
       - OLLAMA_URL=http://ollama:11434
-      - LLM_MODEL=llama3.1:8b
-      - EMBEDDING_MODEL=nomic-embed-text
+      - LLM_MODEL=${LLM_MODEL:-llama3.1:8b}
+      - EMBEDDING_MODEL=${EMBEDDING_MODEL:-nomic-embed-text}
       - PYTHONPATH=/app
     depends_on:
       - neo4j
@@ -30,7 +30,7 @@ services:
       - "7474:7474"
       - "7687:7687"
     environment:
-      - NEO4J_AUTH=neo4j/foundergraph_password
+      - NEO4J_AUTH=${NEO4J_USER:-neo4j}/${NEO4J_PASSWORD:-foundergraph_password}
       - NEO4J_server_memory_heap_initial__size=512m
       - NEO4J_server_memory_heap_max__size=1G
     volumes:
