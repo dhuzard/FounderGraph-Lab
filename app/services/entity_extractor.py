@@ -50,6 +50,8 @@ _DEFAULT_ENTITY_TYPES = (
     "- GrantCall\n- Investor\n- Partner\n- Competitor\n- IPAsset\n"
     "- RegulatoryConstraint\n- TechnicalDependency\n- FinancialHypothesis"
 )
+DEFAULT_CHUNK_SIZE = 12_000
+DEFAULT_CHUNK_OVERLAP = 1_000
 
 
 class DocumentClassification(BaseModel):
@@ -329,34 +331,58 @@ class EntityExtractor:
         """
         meta = metadata or {}
         classification = self.classify_document(text, meta)
-        entities = self.extract_entities(text, meta)
-
         doc_id = str(
             meta.get("source_document_id")
             or meta.get("document_id")
             or meta.get("source_document")
             or ""
         )
-        # Build temporary_id → stable UUIDv5 mapping so relations can be updated.
         stable_doc_id = doc_id or None
-        tmp_to_stable: dict[str, str] = {}
-        for entity in entities:
-            sid = stable_entity_id(doc_id, entity.label or "", entity.type)
-            old_tmp = entity.temporary_id or entity.id or ""
-            tmp_to_stable[old_tmp] = sid
-            entity.id = sid
-            entity.temporary_id = sid
-            entity.source_document_id = stable_doc_id
+        chunks = self._chunk_text(text)
 
-        relations = self.extract_relations(text, entities, meta)
-        for relation in relations:
-            if relation.source_entity_id in tmp_to_stable:
-                relation.source_entity_id = tmp_to_stable[relation.source_entity_id]
-                relation.subject_temporary_id = relation.source_entity_id
-            if relation.target_entity_id in tmp_to_stable:
-                relation.target_entity_id = tmp_to_stable[relation.target_entity_id]
-                relation.object_temporary_id = relation.target_entity_id
-            relation.source_document_id = stable_doc_id
+        all_entities: list[CandidateKnowledgeEntity] = []
+        all_relations: list[CandidateKnowledgeRelation] = []
+        multi_chunk = len(chunks) > 1
+
+        for chunk_index, chunk_text in enumerate(chunks, start=1):
+            chunk_meta = {
+                **meta,
+                "chunk_index": chunk_index,
+                "chunk_count": len(chunks),
+            }
+            entities = self.extract_entities(chunk_text, chunk_meta)
+
+            # Build temporary_id → stable UUIDv5 mapping so relations can be updated.
+            tmp_to_stable: dict[str, str] = {}
+            for entity in entities:
+                sid = stable_entity_id(doc_id, entity.label or "", entity.type)
+                old_tmp = entity.temporary_id or entity.id or ""
+                tmp_to_stable[old_tmp] = sid
+                entity.id = sid
+                entity.temporary_id = sid
+                entity.source_document_id = stable_doc_id
+                if multi_chunk:
+                    entity.properties.setdefault("extraction_chunks", [])
+                    entity.properties["extraction_chunks"].append(chunk_index)
+
+            relations = self.extract_relations(chunk_text, entities, chunk_meta)
+            for relation in relations:
+                if relation.source_entity_id in tmp_to_stable:
+                    relation.source_entity_id = tmp_to_stable[relation.source_entity_id]
+                    relation.subject_temporary_id = relation.source_entity_id
+                if relation.target_entity_id in tmp_to_stable:
+                    relation.target_entity_id = tmp_to_stable[relation.target_entity_id]
+                    relation.object_temporary_id = relation.target_entity_id
+                relation.source_document_id = stable_doc_id
+                if multi_chunk:
+                    relation.properties.setdefault("extraction_chunks", [])
+                    relation.properties["extraction_chunks"].append(chunk_index)
+
+            all_entities.extend(entities)
+            all_relations.extend(relations)
+
+        entities = self._merge_entities(all_entities)
+        relations = self._merge_relations(all_relations)
 
         try:
             from app.services.ontology_validator import OntologyValidator
@@ -391,6 +417,83 @@ class EntityExtractor:
             relations=staged_relations,
             wrote_files=True,
         )
+
+    @staticmethod
+    def _chunk_text(
+        text: str,
+        *,
+        chunk_size: int = DEFAULT_CHUNK_SIZE,
+        overlap: int = DEFAULT_CHUNK_OVERLAP,
+    ) -> list[str]:
+        """Split long documents so rich PDFs are not under-extracted by context truncation."""
+        clean = text.strip()
+        if not clean:
+            return [""]
+        if len(clean) <= chunk_size:
+            return [clean]
+
+        chunks: list[str] = []
+        start = 0
+        while start < len(clean):
+            hard_end = min(start + chunk_size, len(clean))
+            end = hard_end
+            if hard_end < len(clean):
+                paragraph_break = clean.rfind("\n\n", start + chunk_size // 2, hard_end)
+                sentence_break = clean.rfind(". ", start + chunk_size // 2, hard_end)
+                end = max(paragraph_break, sentence_break)
+                if end <= start:
+                    end = hard_end
+                elif end == sentence_break:
+                    end += 1
+            chunk = clean[start:end].strip()
+            if chunk:
+                chunks.append(chunk)
+            if end >= len(clean):
+                break
+            start = max(end - overlap, start + 1)
+        return chunks or [clean]
+
+    @staticmethod
+    def _merge_entities(entities: list[CandidateKnowledgeEntity]) -> list[CandidateKnowledgeEntity]:
+        merged: dict[str, CandidateKnowledgeEntity] = {}
+        for entity in entities:
+            key = str(entity.id or entity.temporary_id)
+            if key not in merged:
+                merged[key] = entity
+                continue
+            existing = merged[key]
+            if entity.description and entity.description not in (existing.description or ""):
+                existing.description = "\n\n".join(part for part in (existing.description, entity.description) if part)
+            if entity.source_snippet and entity.source_snippet not in (existing.source_snippet or ""):
+                existing.source_snippet = "\n---\n".join(part for part in (existing.source_snippet, entity.source_snippet) if part)
+            existing.tags = sorted(set(existing.tags) | set(entity.tags))
+            chunks = set(existing.properties.get("extraction_chunks", [])) | set(entity.properties.get("extraction_chunks", []))
+            if chunks:
+                existing.properties["extraction_chunks"] = sorted(chunks)
+        return list(merged.values())
+
+    @staticmethod
+    def _merge_relations(relations: list[CandidateKnowledgeRelation]) -> list[CandidateKnowledgeRelation]:
+        grade_rank = {"direct_quote": 0, "paraphrase": 1, "inference": 2, "speculation": 3, None: 4}
+        merged: dict[tuple[str, str, str], CandidateKnowledgeRelation] = {}
+        for relation in relations:
+            key = (
+                str(relation.source_entity_id),
+                str(relation.predicate or relation.type),
+                str(relation.target_entity_id),
+            )
+            if key not in merged:
+                merged[key] = relation
+                continue
+            existing = merged[key]
+            if grade_rank.get(relation.evidence_grade, 4) < grade_rank.get(existing.evidence_grade, 4):
+                existing.evidence_grade = relation.evidence_grade
+            if relation.source_snippet and relation.source_snippet not in (existing.source_snippet or ""):
+                existing.source_snippet = "\n---\n".join(part for part in (existing.source_snippet, relation.source_snippet) if part)
+            chunks = set(existing.properties.get("extraction_chunks", [])) | set(relation.properties.get("extraction_chunks", []))
+            if chunks:
+                existing.properties["extraction_chunks"] = sorted(chunks)
+        return list(merged.values())
 
     def _build_prompt(
         self,

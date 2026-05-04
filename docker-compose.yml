@@ -1,7 +1,7 @@
 services:
   app:
     build: .
-    container_name: foundergraph_app
+    container_name: fair_vcg_mentor_app
     ports:
       - "8501:8501"
     volumes:
@@ -25,7 +25,7 @@ services:
 
   neo4j:
     image: neo4j:community
-    container_name: foundergraph_neo4j
+    container_name: fair_vcg_mentor_neo4j
     ports:
       - "7474:7474"
       - "7687:7687"
@@ -39,7 +39,7 @@ services:
 
   qdrant:
     image: qdrant/qdrant
-    container_name: foundergraph_qdrant
+    container_name: fair_vcg_mentor_qdrant
     ports:
       - "6333:6333"
     volumes:
@@ -47,7 +47,7 @@ services:
 
   ollama:
     image: ollama/ollama
-    container_name: foundergraph_ollama
+    container_name: fair_vcg_mentor_ollama
     ports:
       - "11434:11434"
     volumes:

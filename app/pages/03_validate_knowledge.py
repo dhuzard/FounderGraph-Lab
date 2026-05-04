@@ -179,6 +179,121 @@ def _apply_bulk_status(
     return updated
 
 
+def _status_of(record: dict[str, Any]) -> str:
+    return str(record.get("status") or record.get("validation_status") or "pending")
+
+
+def _review_lane(record: dict[str, Any]) -> str:
+    status = _status_of(record)
+    if status != "pending":
+        return status
+    grade = str(record.get("evidence_grade") or "")
+    snippet = str(record.get("source_snippet") or "").strip()
+    if grade == "direct_quote" and snippet:
+        return "ready"
+    if grade in {"inference", "speculation"} or not snippet:
+        return "needs_attention"
+    return "standard"
+
+
+def _record_title(record: dict[str, Any], kind: str, label_map: dict[str, str] | None = None) -> str:
+    if kind == "relation":
+        source = label_map.get(str(record.get("source_entity_id")), str(record.get("source_entity_id", ""))) if label_map else str(record.get("source_entity_id", ""))
+        target = label_map.get(str(record.get("target_entity_id")), str(record.get("target_entity_id", ""))) if label_map else str(record.get("target_entity_id", ""))
+        return f"{source} -> {record.get('type', '')} -> {target}"
+    return f"{record.get('label') or record.get('name') or record.get('id')} ({record.get('type', 'Entity')})"
+
+
+def _merge_record_update(
+    all_records: list[dict[str, Any]],
+    updated_record: dict[str, Any],
+) -> list[dict[str, Any]]:
+    updated_id = str(updated_record.get("id", ""))
+    return [updated_record if str(record.get("id", "")) == updated_id else record for record in all_records]
+
+
+def review_workbench(
+    *,
+    kind: str,
+    records: list[dict[str, Any]],
+    all_records: list[dict[str, Any]],
+    save_records: Any,
+    label_map: dict[str, str] | None = None,
+) -> None:
+    if not records:
+        return
+
+    lane_counts = {
+        "ready": sum(1 for record in records if _review_lane(record) == "ready"),
+        "standard": sum(1 for record in records if _review_lane(record) == "standard"),
+        "needs_attention": sum(1 for record in records if _review_lane(record) == "needs_attention"),
+    }
+    lane_cols = st.columns(3)
+    lane_cols[0].metric("Ready quote-backed", lane_counts["ready"])
+    lane_cols[1].metric("Standard review", lane_counts["standard"])
+    lane_cols[2].metric("Needs attention", lane_counts["needs_attention"])
+
+    pending_first = sorted(
+        records,
+        key=lambda record: (
+            _status_of(record) != "pending",
+            {"needs_attention": 0, "standard": 1, "ready": 2}.get(_review_lane(record), 3),
+            _record_title(record, kind, label_map).lower(),
+        ),
+    )
+    selected = st.selectbox(
+        "Focused candidate",
+        pending_first,
+        format_func=lambda record: f"[{_status_of(record)}] {_record_title(record, kind, label_map)}",
+        key=f"{kind}_focused_candidate",
+    )
+
+    left, right = st.columns([3, 2])
+    with left:
+        st.markdown(f"**{_record_title(selected, kind, label_map)}**")
+        if selected.get("description"):
+            st.write(selected["description"])
+        st.caption(
+            f"Evidence: {selected.get('evidence_grade') or 'ungraded'} | "
+            f"Source: {selected.get('source_document_id') or selected.get('source_file') or 'unknown'}"
+        )
+        snippet = str(selected.get("source_snippet") or "").strip()
+        if snippet:
+            st.text_area("Source snippet", snippet, height=160, disabled=True, key=f"{kind}_snippet")
+        else:
+            st.warning("No source snippet was extracted. This should usually be marked needs_more_evidence.")
+
+    with right:
+        with st.form(f"{kind}_focused_review_form"):
+            status = st.radio(
+                "Decision",
+                options=list(VALIDATION_STATUSES),
+                index=list(VALIDATION_STATUSES).index(_status_of(selected))
+                if _status_of(selected) in VALIDATION_STATUSES else 0,
+                horizontal=False,
+            )
+            confidence = selected.get("reviewer_confidence") or "ungraded"
+            if kind == "entity":
+                confidence = st.selectbox(
+                    "Reviewer confidence",
+                    options=list(REVIEWER_CONFIDENCES),
+                    index=list(REVIEWER_CONFIDENCES).index(confidence)
+                    if confidence in REVIEWER_CONFIDENCES else len(REVIEWER_CONFIDENCES) - 1,
+                )
+            comment = st.text_area("Reviewer note", value=str(selected.get("reviewer_comment") or ""), height=110)
+            submitted = st.form_submit_button("Save focused review", type="primary")
+            if submitted:
+                updated = dict(selected)
+                updated["status"] = status
+                updated["validation_status"] = status
+                updated["reviewer_comment"] = comment
+                if kind == "entity":
+                    updated["reviewer_confidence"] = confidence
+                path = save_records(_merge_record_update(all_records, updated))
+                st.success(f"Saved {path}")
+                st.rerun()
+
+
 # ---------------------------------------------------------------------------
 # Page layout
 # ---------------------------------------------------------------------------
@@ -256,6 +371,13 @@ with tab_entities:
     if not entities:
         st.info("No entity candidates match the current filters.")
     else:
+        review_workbench(
+            kind="entity",
+            records=entities,
+            all_records=all_entities,
+            save_records=store.save_entities,
+        )
+        st.divider()
         col_approve, col_reject, col_spacer = st.columns([1, 1, 6])
         with col_approve:
             if st.button("Approve all pending", key="approve_all_entities"):
@@ -297,6 +419,14 @@ with tab_relations:
     if not relations:
         st.info("No relation candidates match the current filters.")
     else:
+        review_workbench(
+            kind="relation",
+            records=relations,
+            all_records=all_relations,
+            save_records=store.save_relations,
+            label_map=label_map,
+        )
+        st.divider()
         col_approve, col_spacer = st.columns([1, 7])
         with col_approve:
             if st.button("Approve all pending", key="approve_all_relations"):

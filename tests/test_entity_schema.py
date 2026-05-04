@@ -230,6 +230,93 @@ def test_source_document_id_populated_in_staging(tmp_path):
     )
 
 
+def test_long_document_extraction_runs_per_chunk_and_merges_entities(tmp_path, monkeypatch):
+    monkeypatch.setattr(
+        EntityExtractor,
+        "_chunk_text",
+        staticmethod(lambda text: ["chunk one", "chunk two"]),
+    )
+    llm = FakeLLM(
+        [
+            {
+                "document_type": "TechnicalDocumentation",
+                "secondary_types": [],
+                "summary": "Two chunk document.",
+                "tags": [],
+                "confidence": "high",
+            },
+            {
+                "entities": [
+                    {
+                        "temporary_id": "TMP-STARTUP",
+                        "type": "Startup",
+                        "label": "Metadatapp",
+                        "source_snippet": "Metadatapp manages metadata.",
+                        "evidence_grade": "direct_quote",
+                    },
+                    {
+                        "temporary_id": "TMP-VP-1",
+                        "type": "ValueProposition",
+                        "label": "Interoperable experiment metadata",
+                        "source_snippet": "interoperable experiment metadata",
+                        "evidence_grade": "direct_quote",
+                    },
+                ]
+            },
+            {
+                "relations": [
+                    {
+                        "source_entity_id": "TMP-STARTUP",
+                        "target_entity_id": "TMP-VP-1",
+                        "type": "PROVIDES",
+                        "source_snippet": "Metadatapp provides interoperable experiment metadata.",
+                        "evidence_grade": "paraphrase",
+                    }
+                ]
+            },
+            {
+                "entities": [
+                    {
+                        "temporary_id": "TMP-STARTUP-AGAIN",
+                        "type": "Startup",
+                        "label": "Metadatapp",
+                        "source_snippet": "The Metadatapp platform supports FAIR workflows.",
+                        "evidence_grade": "direct_quote",
+                    },
+                    {
+                        "temporary_id": "TMP-VP-2",
+                        "type": "ValueProposition",
+                        "label": "FAIR workflows",
+                        "source_snippet": "supports FAIR workflows",
+                        "evidence_grade": "direct_quote",
+                    },
+                ]
+            },
+            {
+                "relations": [
+                    {
+                        "source_entity_id": "TMP-STARTUP-AGAIN",
+                        "target_entity_id": "TMP-VP-2",
+                        "type": "PROVIDES",
+                        "source_snippet": "The Metadatapp platform supports FAIR workflows.",
+                        "evidence_grade": "direct_quote",
+                    }
+                ]
+            },
+        ]
+    )
+    extractor = EntityExtractor(llm_service=llm, staging_dir=tmp_path)
+
+    result = extractor.extract_to_staging("long document", {"source_document_id": "doc-rich"})
+
+    assert len(result.entities) == 3
+    startup = next(entity for entity in result.entities if entity.label == "Metadatapp")
+    assert startup.properties["extraction_chunks"] == [1, 2]
+    assert "Metadatapp manages metadata." in (startup.source_snippet or "")
+    assert "supports FAIR workflows" in (startup.source_snippet or "")
+    assert len(result.relations) == 2
+
+
 def test_reviewer_comment_on_relation_model():
     """CandidateKnowledgeRelation must accept reviewer_comment and preserve it
     through _dump_model so the validation UI can save reviewer notes on relations."""

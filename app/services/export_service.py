@@ -1,4 +1,4 @@
-"""Export FounderGraph Lab data into portable files."""
+"""Export FAIR-VCG-mentor data into portable files."""
 
 from __future__ import annotations
 
@@ -134,7 +134,7 @@ def create_manifest(
         "relation_types": rel_types,
         "warning_count": len(warnings),
         "warnings": warnings,
-        "generator": "FounderGraph Lab",
+        "generator": "FAIR-VCG-mentor",
     }
 
 

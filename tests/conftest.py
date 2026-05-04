@@ -1,4 +1,4 @@
-"""Shared pytest fixtures and stubs for FounderGraph Lab tests."""
+"""Shared pytest fixtures and stubs for FAIR-VCG-mentor tests."""
 
 from __future__ import annotations
 

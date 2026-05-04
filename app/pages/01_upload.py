@@ -7,7 +7,7 @@ try:
 except ImportError:  # pragma: no cover
     st = None
 
-from app.services.extractors import SUPPORTED_EXTENSIONS, is_supported_file
+from app.services.extractors import GOOGLE_WORKSPACE_SHORTCUTS, SUPPORTED_EXTENSIONS, is_supported_file
 from app.services.file_store import FileStoreError, ingest_document
 
 
@@ -28,6 +28,14 @@ def _collect_files(folder: Path) -> list[Path]:
         p for p in folder.rglob("*")
         if p.is_file() and is_supported_file(p.name)
     )
+
+
+def _scan_folder(folder: Path) -> tuple[list[Path], list[Path], list[Path]]:
+    all_files = sorted(p for p in folder.rglob("*") if p.is_file())
+    supported = [p for p in all_files if is_supported_file(p.name)]
+    google_shortcuts = [p for p in all_files if p.suffix.lower() in GOOGLE_WORKSPACE_SHORTCUTS]
+    unsupported = [p for p in all_files if p not in supported and p not in google_shortcuts]
+    return supported, google_shortcuts, unsupported
 
 
 def main() -> None:
@@ -100,7 +108,18 @@ def main() -> None:
             elif not folder.is_dir():
                 st.error(f"Not a directory: `{folder}`")
             else:
-                files = _collect_files(folder)
+                files, google_shortcuts, unsupported = _scan_folder(folder)
+
+                if google_shortcuts:
+                    st.warning(
+                        f"Skipped {len(google_shortcuts)} Google Workspace shortcut file(s) "
+                        "(.gdoc/.gslides/.gsheet). Export those files from Google Drive first; "
+                        "the local shortcut only contains an ID, not the document text."
+                    )
+                if unsupported:
+                    with st.expander(f"Skipped {len(unsupported)} unsupported file(s)"):
+                        for path in unsupported[:200]:
+                            st.write(str(path.relative_to(folder)))
 
                 if not files:
                     st.warning(

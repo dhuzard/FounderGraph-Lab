@@ -1,4 +1,4 @@
-# FounderGraph Lab — Functionality & Usability Assessment
+# FAIR-VCG-mentor — Functionality & Usability Assessment
 
 > Assessed: 2026-05-01 | Branch: `claude/assess-repo-multi-agent-E1XWI`
 
@@ -6,7 +6,7 @@
 
 ## 1. Project Overview
 
-FounderGraph Lab is a **local-first Streamlit application** for converting raw startup documents (pitch decks, business plans, interview notes, grant applications) into a validated, traversable knowledge graph. It combines LLM-powered extraction, human-in-the-loop validation, and graph persistence across three complementary stores: Neo4j (structured graph), Qdrant (semantic vectors), and a Markdown vault (human-readable archive).
+FAIR-VCG-mentor is a **local-first Streamlit application** for converting raw startup documents (pitch decks, business plans, interview notes, grant applications) into a validated, traversable knowledge graph. It combines LLM-powered extraction, human-in-the-loop validation, and graph persistence across three complementary stores: Neo4j (structured graph), Qdrant (semantic vectors), and a Markdown vault (human-readable archive).
 
 Core pipeline:
 ```

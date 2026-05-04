@@ -1,5 +1,5 @@
 [project]
-name = "foundergraph-lab"
+name = "fair-vcg-mentor"
 version = "0.1.0"
 
 [tool.pytest.ini_options]

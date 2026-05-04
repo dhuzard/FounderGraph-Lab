@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""HITL CLI to initialize the FounderGraph ontology for a specific startup.
+"""HITL CLI to initialize the FAIR-VCG-mentor ontology for a specific startup.
 
 Usage:
     python scripts/init_ontology.py
@@ -494,7 +494,7 @@ def init_neo4j_schema(config: OntologyConfig) -> None:
 def banner() -> None:
     print(_c("""
 ╔══════════════════════════════════════════════════════════════════╗
-║         FounderGraph Lab — Ontology Initializer                  ║
+║         FAIR-VCG-mentor — Ontology Initializer                  ║
 ║  Configure the knowledge graph for your specific startup.        ║
 ╚══════════════════════════════════════════════════════════════════╝
 """, BOLD, CYAN))
@@ -619,7 +619,7 @@ def main(args: argparse.Namespace) -> None:
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="FounderGraph ontology initializer")
+    parser = argparse.ArgumentParser(description="FAIR-VCG-mentor ontology initializer")
     parser.add_argument("--docs", type=Path, default=None, help="Path to startup document directory")
     parser.add_argument("--reset", action="store_true", help="Reset YAML to defaults before editing")
     main(parser.parse_args())

@@ -1,4 +1,4 @@
-# FounderGraph Lab
+# FAIR-VCG-mentor
 
 A local-first, human-in-the-loop Streamlit application that converts raw startup documents into a validated, queryable Neo4j knowledge graph. Every piece of LLM-extracted knowledge passes through an explicit human review gate before entering the graph.
 
@@ -37,7 +37,7 @@ startup files
 
 ## What it does
 
-FounderGraph Lab ingests any combination of pitch decks, business plans, customer interview notes, grant applications, technical roadmaps, and meeting notes, and turns them into a structured graph of startup knowledge:
+FAIR-VCG-mentor ingests any combination of pitch decks, business plans, customer interview notes, grant applications, technical roadmaps, and meeting notes, and turns them into a structured graph of startup knowledge:
 
 - **Entities** — typed graph nodes (Startup, Founder, Assumption, Evidence, Risk, Milestone, etc.)
 - **Relations** — typed graph edges (TARGETS, SUPPORTED_BY, CONTRADICTED_BY, THREATENS, FUNDS, etc.)
@@ -361,7 +361,7 @@ class LLMService(Protocol):
 ```bash
 # 1. Clone and configure
 git clone <repo-url>
-cd FounderGraph-Lab
+cd FAIR-VCG-mentor-Lab
 cp .env.example .env          # edit if needed (default credentials work as-is)
 
 # 2. Start all services

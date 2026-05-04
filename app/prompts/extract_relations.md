@@ -26,6 +26,11 @@ Rules:
 5. If uncertain, omit the relation.
 6. Set evidence_grade to "direct_quote", "paraphrase", or "inference" to describe
    how directly the document supports this relation.
+7. Extract all clearly supported links among the provided entities, not just the
+   most obvious one. A decision-useful graph should connect assumptions to
+   evidence, risks to milestones, features to problems, dependencies to other
+   dependencies, and startup/customer/value proposition facts whenever the text
+   supports those links.
 
 JSON schema:
 {
