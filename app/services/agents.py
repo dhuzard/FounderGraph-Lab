@@ -50,7 +50,10 @@ def _neo4j_read(cypher: str, parameters: dict[str, Any] | None = None) -> dict[s
 def _ollama_generate(prompt: str) -> dict[str, Any]:
     url = f"{os.getenv('OLLAMA_URL', 'http://localhost:11434').rstrip('/')}/api/generate"
     body = json.dumps({
-        "model": os.getenv("OLLAMA_SYNTH_MODEL", os.getenv("OLLAMA_MODEL", "llama3.1")),
+        "model": os.getenv(
+            "OLLAMA_SYNTH_MODEL",
+            os.getenv("LLM_MODEL", os.getenv("OLLAMA_MODEL", "llama3.1:8b")),
+        ),
         "prompt": prompt,
         "stream": False,
     }).encode("utf-8")
@@ -59,6 +62,13 @@ def _ollama_generate(prompt: str) -> dict[str, Any]:
         with urllib.request.urlopen(request, timeout=90) as resp:
             response = json.loads(resp.read().decode("utf-8"))
         return {"available": True, "text": str(response.get("response", "")).strip()}
+    except urllib.error.HTTPError as exc:
+        model = os.getenv("OLLAMA_SYNTH_MODEL", os.getenv("LLM_MODEL", os.getenv("OLLAMA_MODEL", "llama3.1:8b")))
+        return {
+            "available": False,
+            "error": f"{exc}. Is Ollama model '{model}' pulled?",
+            "text": "",
+        }
     except (urllib.error.URLError, TimeoutError, OSError, json.JSONDecodeError) as exc:
         return {"available": False, "error": str(exc), "text": ""}
 

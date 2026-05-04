@@ -16,6 +16,7 @@ data/exports/*
 vault/documents/*
 vault/entities/*
 vault/audits/*
+vault/Knowledge_Center/
 
 !data/original_files/.gitkeep
 !data/extracted_text/.gitkeep

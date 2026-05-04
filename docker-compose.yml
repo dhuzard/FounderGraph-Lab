@@ -16,6 +16,7 @@ services:
       - OLLAMA_URL=http://ollama:11434
       - LLM_MODEL=llama3.1:8b
       - EMBEDDING_MODEL=nomic-embed-text
+      - PYTHONPATH=/app
     depends_on:
       - neo4j
       - qdrant
