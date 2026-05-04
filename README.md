@@ -418,9 +418,12 @@ Optional Make shortcuts (Linux/macOS/WSL or Windows with Make installed):
 make up            # docker compose up -d --build
 make pull-models   # docker exec ... ollama pull ...
 make init          # python scripts/init_ontology.py
+make reset-demo    # backup + clear previous staging/knowledge/vault docs for a clean demo run
 make down          # stop all containers
 make logs          # tail all container logs
 ```
+
+When running `make init` with sample data, the initializer now offers a clean-start prompt that can automatically reset old staging and knowledge artifacts before continuing.
 
 ### Troubleshooting: "make up" does not work on Windows
 

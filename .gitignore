@@ -13,6 +13,7 @@ data/extracted_text/*
 data/staging/*
 data/knowledge/*
 data/exports/*
+data/backups/*
 vault/documents/*
 vault/entities/*
 vault/audits/*
@@ -23,6 +24,7 @@ sample_data/metadatapp/
 !data/staging/.gitkeep
 !data/knowledge/.gitkeep
 !data/exports/.gitkeep
+!data/backups/.gitkeep
 !vault/documents/.gitkeep
 !vault/entities/.gitkeep
 !vault/audits/.gitkeep

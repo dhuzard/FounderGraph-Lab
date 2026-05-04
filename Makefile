@@ -1,4 +1,4 @@
-.PHONY: up down logs test lint format pull-models init
+.PHONY: up down logs test lint format pull-models init reset-demo
 
 PYTHON ?= python
 
@@ -26,3 +26,6 @@ pull-models:
 
 init:
 	$(PYTHON) scripts/init_ontology.py
+
+reset-demo:
+	$(PYTHON) scripts/reset_demo_state.py

@@ -42,6 +42,7 @@ from app.services.ontology_service import (
 )
 from app.services.file_store import FileStoreError, ingest_document
 from app.services.init_bridge import save_init_bridge
+from scripts.reset_demo_state import reset_demo_state
 
 # ---------------------------------------------------------------------------
 # Terminal formatting helpers
@@ -557,6 +558,15 @@ def main(args: argparse.Namespace) -> None:
     if not doc_path.exists():
         err(f"Path not found: {doc_path}")
         sys.exit(1)
+
+    should_offer_clean_reset = "sample_data" in str(doc_path).replace("\\", "/")
+    if ask_yn(
+        "Start from a clean demo state before continuing?",
+        default=should_offer_clean_reset,
+    ):
+        summary = reset_demo_state(clear_audits=False)
+        ok(f"Demo state reset. Backup saved at {summary.backup_dir.relative_to(_PROJECT_ROOT)}")
+        ok(f"Reset JSON files: {summary.reset_files}; cleared vault files: {summary.removed_vault_files}")
 
     files = discover_documents(doc_path)
     if not files:
