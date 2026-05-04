@@ -303,16 +303,58 @@ YAML-as-single-source-of-truth for the ontology.
 
 ### `app/services/agents.py`
 
-LangGraph-backed audit agents. Each agent:
-1. Pulls a graph snapshot from Neo4j via `READ_ACCESS` session
-2. Embeds it as JSON context in the audit prompt
-3. Runs the LLM and returns structured Markdown output
-4. Saves the report to `vault/audits/`
+Read-only audit agents. Each workflow:
+1. Injects the live ontology schema (entity classes, relation types, domain goals) into the prompt
+2. Pulls a multi-hop graph snapshot from Neo4j via `READ_ACCESS` session
+3. Runs a semantic search over the Qdrant vector index for relevant document chunks
+4. Synthesises graph context + evidence snippets via Ollama into a structured Markdown audit
+5. Saves the report to `vault/audits/` with a UTC timestamp
 
-Available agents:
-- **Assumption Audit** — identifies unsupported assumptions, assesses evidence quality
-- **Pitch Audit** — evaluates investor-readiness, narrative clarity, traction gaps
-- **Grant Strategy** — matches startup profile to grant themes and recommends positioning
+All workflows are registered in `WORKFLOWS` and appear automatically in the Agents page.
+
+#### Available workflows
+
+| Workflow | Slug | Best used when… |
+|---|---|---|
+| **Decision Intelligence** | `decision-intelligence` | You need a confidence-weighted decision brief — maps evidence grades to concrete actions with risk-weighted prioritization and red flags for contradicted critical assumptions |
+| **Unsupported Assumption Agent** | `unsupported-assumptions` | You want to find `Assumption` nodes that have zero `SUPPORTED_BY` links — the highest-priority validation gaps before an investor meeting |
+| **Assumption Audit** | `assumption-audit` | Full assumption map: supporting vs. contradicting evidence, confidence grades, linked experiments, and related risks across the whole graph |
+| **Next Experiment Suggestion Agent** | `next-experiments` | You want to know which experiments to run next — surfaces assumptions with no experiments, plus what prior experiments already generated |
+| **Due Diligence Checklist Agent** | `due-diligence-checklist` | Investor-readiness view: IP assets, regulatory constraints, financial hypotheses, and assumption coverage in one joined query |
+| **Pitch Audit** | `pitch-audit` | Narrative coherence check: strengths, gaps, contradictions in the pitch, and evidence-backed recommendations for each weak area |
+| **Customer Discovery Agent** | `customer-discovery` | Maps `CustomerSegment → Problem → ProductFeature` paths to reveal unaddressed pain points and generate interview questions |
+| **Grant Strategy** | `grant-strategy` | Maps venture evidence to grant narratives, identifies claims needing substantiation, and suggests workplan and budget themes |
+
+#### Recommended sequence
+
+```
+1. Unsupported Assumption Agent   ← find the gaps
+2. Next Experiment Suggestion Agent ← plan validation
+3. Assumption Audit               ← review full evidence matrix
+4. Decision Intelligence          ← get a decision brief
+5. Pitch Audit / Due Diligence    ← investor-facing review
+6. Grant Strategy                 ← funding applications
+```
+
+#### Adding a new workflow
+
+See [MULTI_AGENT_GUIDELINES.md](MULTI_AGENT_GUIDELINES.md) for the full pattern. In short:
+
+```python
+# app/services/agents.py
+def my_workflow() -> dict[str, Any]:
+    return run_agent_workflow(
+        slug="my-workflow",
+        title="My Workflow Title",
+        prompt_file="my_prompt.md",   # add to app/prompts/
+        query="semantic search terms for Qdrant",
+        cypher="MATCH (n:Entity:MyType) RETURN n.label LIMIT 50",
+    )
+
+WORKFLOWS["My Workflow"] = my_workflow
+```
+
+The workflow automatically appears in the Agents page dropdown and receives the ontology schema in its prompt.
 
 ---
 

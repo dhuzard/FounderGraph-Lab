@@ -73,6 +73,31 @@ def _ollama_generate(prompt: str) -> dict[str, Any]:
         return {"available": False, "error": str(exc), "text": ""}
 
 
+def _ontology_context() -> str:
+    """Return a compact ontology summary to ground the LLM in domain vocabulary."""
+    try:
+        from app.services.ontology_validator import OntologyLoader
+        loader = OntologyLoader()
+        domain = loader._data.get("domain", "")
+        goals = loader._data.get("goals", [])
+        labels = sorted(loader.allowed_labels - {"Entity", "Document"})
+        relations = sorted(loader.allowed_relationships)
+        classes_block = loader._data.get("classes", {})
+        class_lines = [
+            f"  - {name}: {defn.get('description', '')} (fields: {', '.join(defn.get('fields', []))})"
+            for name, defn in classes_block.items()
+            if defn.get("description") or defn.get("fields")
+        ]
+        return (
+            f"Domain: {domain}\n"
+            f"Goals: {', '.join(goals)}\n"
+            f"Entity classes:\n" + "\n".join(class_lines) + "\n"
+            f"Relation types: {', '.join(relations)}"
+        )
+    except Exception:
+        return ""
+
+
 def _format_rows(rows: list[dict[str, Any]]) -> str:
     if not rows:
         return "No graph rows available."
@@ -123,9 +148,11 @@ def run_agent_workflow(slug: str, title: str, prompt_file: str, query: str, cyph
     prompt = _read_prompt(prompt_file)
     graph = _neo4j_read(cypher)
     snippets = QdrantService().semantic_search(query, collection=DOCUMENT_COLLECTION, limit=6)
+    ontology = _ontology_context()
+    ontology_section = f"\nOntology schema (use these entity classes and relation types when naming findings):\n{ontology}\n" if ontology else ""
     synthesis_prompt = f"""{prompt}
-
-Use only the graph context and evidence snippets below. Do not invent facts.
+{ontology_section}
+Use only the graph context and evidence snippets below. Do not invent facts. When referencing entities, use the ontology class names (e.g. Assumption, Evidence, Risk, Experiment, Decision, Milestone).
 
 Graph context:
 {_format_rows(graph.get("rows", []))}
@@ -178,9 +205,18 @@ def assumption_audit() -> dict[str, Any]:
         prompt_file="assumption_audit.md",
         query="critical assumptions evidence confidence risk validation experiments",
         cypher=(
-            "MATCH (a) "
-            "WHERE a:Assumption OR a:Evidence OR a:Risk "
-            "RETURN labels(a) AS labels, properties(a) AS properties LIMIT 75"
+            "MATCH (a:Entity:Assumption) "
+            "OPTIONAL MATCH (a)-[sr:SUPPORTED_BY]->(se:Entity:Evidence) "
+            "OPTIONAL MATCH (a)-[cr:CONTRADICTED_BY]->(ce:Entity:Evidence) "
+            "OPTIONAL MATCH (exp:Entity:Experiment)-[:TESTS]->(a) "
+            "OPTIONAL MATCH (a)<-[:THREATENS]-(r:Entity:Risk) "
+            "RETURN a.label AS assumption, a.criticality AS criticality, "
+            "a.evidence_grade AS grade, a.reviewer_confidence AS confidence, "
+            "a.validation_status AS status, "
+            "collect(DISTINCT se.label) AS supporting_evidence, "
+            "collect(DISTINCT ce.label) AS contradicting_evidence, "
+            "collect(DISTINCT exp.label) AS experiments, "
+            "collect(DISTINCT r.label) AS related_risks LIMIT 75"
         ),
     )
 
@@ -206,10 +242,21 @@ def due_diligence_checklist() -> dict[str, Any]:
         prompt_file="pitch_audit.md",
         query="due diligence unsupported assumptions missing evidence risks financial IP regulatory",
         cypher=(
-            "MATCH (n:Entity) "
-            "WHERE n:Assumption OR n:Evidence OR n:Risk OR n:FinancialHypothesis "
-            "OR n:IPAsset OR n:RegulatoryConstraint OR n:Milestone "
-            "RETURN labels(n) AS labels, properties(n) AS properties LIMIT 100"
+            "MATCH (a:Entity:Assumption) "
+            "OPTIONAL MATCH (a)-[:SUPPORTED_BY]->(se:Entity:Evidence) "
+            "OPTIONAL MATCH (a)-[:CONTRADICTED_BY]->(ce:Entity:Evidence) "
+            "WITH a, collect(DISTINCT se.label) AS support, collect(DISTINCT ce.label) AS contra "
+            "OPTIONAL MATCH (r:Entity:Risk)-[:THREATENS]->(m:Entity:Milestone) "
+            "OPTIONAL MATCH (ip:Entity:IPAsset) "
+            "OPTIONAL MATCH (rc:Entity:RegulatoryConstraint) "
+            "OPTIONAL MATCH (fh:Entity:FinancialHypothesis) "
+            "RETURN a.label AS assumption, a.evidence_grade AS grade, "
+            "a.criticality AS criticality, support, contra, "
+            "collect(DISTINCT r.label) AS risks, "
+            "collect(DISTINCT m.label) AS threatened_milestones, "
+            "collect(DISTINCT ip.name) AS ip_assets, "
+            "collect(DISTINCT rc.label) AS regulatory_constraints, "
+            "collect(DISTINCT fh.label) AS financial_hypotheses LIMIT 60"
         ),
     )
 
@@ -222,9 +269,16 @@ def next_experiment_suggestions() -> dict[str, Any]:
         query="validation experiment hypothesis success criteria unsupported assumption",
         cypher=(
             "MATCH (a:Entity:Assumption) "
-            "OPTIONAL MATCH (e:Entity:Experiment)-[:TESTS]->(a) "
-            "RETURN a.id AS assumption_id, a.label AS assumption, a.description AS description, "
-            "collect(e.label) AS existing_experiments, a.source_snippet AS source_snippet LIMIT 75"
+            "OPTIONAL MATCH (exp:Entity:Experiment)-[:TESTS]->(a) "
+            "OPTIONAL MATCH (exp)-[:GENERATES]->(ev:Entity:Evidence) "
+            "OPTIONAL MATCH (a)-[:SUPPORTED_BY|CONTRADICTED_BY]->(e:Entity:Evidence) "
+            "RETURN a.label AS assumption, a.criticality AS criticality, "
+            "a.evidence_grade AS grade, a.reviewer_confidence AS confidence, "
+            "a.description AS description, "
+            "collect(DISTINCT exp.label) AS existing_experiments, "
+            "collect(DISTINCT {status: exp.status, criteria: exp.success_criteria}) AS experiment_details, "
+            "collect(DISTINCT ev.label) AS generated_evidence, "
+            "collect(DISTINCT e.label) AS existing_evidence LIMIT 75"
         ),
     )
 
@@ -243,6 +297,31 @@ def grant_strategy() -> dict[str, Any]:
     )
 
 
+def decision_intelligence() -> dict[str, Any]:
+    return run_agent_workflow(
+        slug="decision-intelligence",
+        title="Decision Intelligence Report",
+        prompt_file="decision_intelligence.md",
+        query="strategic decision evidence confidence risk milestone investor readiness critical assumption",
+        cypher=(
+            "MATCH (a:Entity:Assumption) "
+            "OPTIONAL MATCH (a)-[:SUPPORTED_BY]->(se:Entity:Evidence) "
+            "OPTIONAL MATCH (a)-[:CONTRADICTED_BY]->(ce:Entity:Evidence) "
+            "OPTIONAL MATCH (exp:Entity:Experiment)-[:TESTS]->(a) "
+            "OPTIONAL MATCH (r:Entity:Risk)-[:THREATENS]->(m:Entity:Milestone) "
+            "OPTIONAL MATCH (d:Entity:Decision)-[:BASED_ON]->(de:Entity:Evidence) "
+            "RETURN a.label AS assumption, a.criticality AS criticality, "
+            "a.evidence_grade AS grade, a.reviewer_confidence AS confidence, "
+            "a.validation_status AS validation_status, "
+            "collect(DISTINCT se.label) AS supporting, "
+            "collect(DISTINCT ce.label) AS contradicting, "
+            "collect(DISTINCT exp.label) AS experiments, "
+            "collect(DISTINCT {risk: r.label, milestone: m.label, probability: r.probability, impact: r.impact, mitigation: r.mitigation}) AS risk_exposure, "
+            "collect(DISTINCT {decision: d.label, basis: de.label}) AS prior_decisions LIMIT 60"
+        ),
+    )
+
+
 WORKFLOWS = {
     "Unsupported Assumption Agent": unsupported_assumption_audit,
     "Pitch Audit": pitch_audit,
@@ -251,4 +330,5 @@ WORKFLOWS = {
     "Due Diligence Checklist Agent": due_diligence_checklist,
     "Next Experiment Suggestion Agent": next_experiment_suggestions,
     "Grant Strategy": grant_strategy,
+    "Decision Intelligence": decision_intelligence,
 }
