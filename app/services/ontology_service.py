@@ -1,8 +1,21 @@
-"""Load, modify, and save the startup ontology YAML.
+"""Static ontology configuration helpers: load, modify, and save the YAML.
 
-This module is the single source of truth for allowed entity labels and
-relation types.  Neo4jService, EntityExtractor, and the init CLI all derive
-their allowlists from here rather than maintaining separate hardcoded sets.
+Boundary note — two modules read startup_ontology.yaml with different APIs:
+
+  ontology_validator.OntologyLoader / get_ontology()
+      Runtime validator used by Neo4jService and EntityExtractor.
+      Parses the YAML directly; provides allowed_labels, allowed_relationships,
+      domain_range_map, required_fields(), and validate_relation().
+      This is the authoritative source for graph-write decisions.
+
+  ontology_service.OntologyConfig / load_ontology() / save_ontology()  ← THIS MODULE
+      Static configuration helper used by scripts/init_ontology.py (the CLI
+      wizard) and the ontology-editing UI.  Provides mutable dataclass objects
+      so the wizard can add/remove/rename entity classes and save changes back
+      to the YAML.  Not used at runtime by Neo4jService or EntityExtractor.
+
+Keep these two roles separate: use get_ontology() for validation at runtime;
+use load_ontology()/save_ontology() for interactive YAML editing only.
 """
 
 from __future__ import annotations

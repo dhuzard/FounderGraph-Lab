@@ -7,6 +7,7 @@ Neo4j connection or mutates the production graph.
 from __future__ import annotations
 
 import json
+import uuid
 from pathlib import Path
 from typing import Any, Iterable
 
@@ -26,6 +27,22 @@ except ImportError:  # pragma: no cover - exercised implicitly when shared model
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 PROMPT_DIR = PROJECT_ROOT / "app" / "prompts"
 DEFAULT_STAGING_DIR = PROJECT_ROOT / "data" / "staging"
+
+# Fixed namespace UUID for deterministic entity ID generation.
+# Never change this value — changing it would invalidate all existing entity IDs.
+_ENTITY_ID_NAMESPACE = uuid.UUID("a7f3c2e1-9b4d-4f8a-b6e5-1d2c3e4f5a6b")
+
+
+def stable_entity_id(doc_id: str, label: str, entity_type: str) -> str:
+    """Generate a stable, collision-safe UUID for an entity.
+
+    The ID is deterministic given the same (doc_id, label, entity_type) triple,
+    so re-extracting the same document produces the same IDs and enables safe
+    MERGE operations in Neo4j.
+    """
+    key = f"{doc_id}::{label.strip().lower()}::{entity_type}"
+    return str(uuid.uuid5(_ENTITY_ID_NAMESPACE, key))
+
 
 _DEFAULT_ENTITY_TYPES = (
     "- CustomerSegment\n- Problem\n- ValueProposition\n- ProductFeature\n"
@@ -63,11 +80,20 @@ class DocumentClassification(BaseModel):
         return value
 
 
+EVIDENCE_GRADES = ("direct_quote", "paraphrase", "inference", "speculation")
+REVIEWER_CONFIDENCES = ("strong", "moderate", "weak", "ungraded")
+
+
 class CandidateKnowledgeEntity(BaseModel):
     """Fallback KnowledgeEntity staging schema.
 
     Required fields: id, name, type. Optional fields carry evidence and metadata
     for downstream review before any graph write happens.
+
+    confidence (float|str) is kept for backward-compatibility with existing
+    staging files but should not be treated as a calibrated probability.
+    Use evidence_grade (set by the LLM) and reviewer_confidence (set by the
+    human reviewer) as the canonical grounding signals.
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -81,10 +107,35 @@ class CandidateKnowledgeEntity(BaseModel):
     aliases: list[str] = Field(default_factory=list)
     evidence: str | None = None
     source_snippet: str | None = None
-    source_document: str | None = None
-    confidence: float | str = "medium"
+    source_document_id: str | None = None
+    # Deprecated: LLM-emitted float/string confidence — not a calibrated probability.
+    confidence: float | str | None = None
+    # How directly the document text supports this entity.
+    evidence_grade: str | None = None
+    # Set by the human reviewer during validation.
+    reviewer_confidence: str | None = None
+    reviewer_comment: str | None = None
     tags: list[str] = Field(default_factory=list)
     properties: dict[str, Any] = Field(default_factory=dict)
+
+    @model_validator(mode="before")
+    @classmethod
+    def _coerce_evidence_grade(cls, value: Any) -> Any:
+        """Accept legacy numeric confidence and convert to evidence_grade."""
+        if not isinstance(value, dict):
+            return value
+        item = dict(value)
+        raw_conf = item.get("confidence")
+        if isinstance(raw_conf, (int, float)):
+            # Numeric LLM confidence → categorical evidence grade.
+            if raw_conf >= 0.8:
+                item.setdefault("evidence_grade", "paraphrase")
+            elif raw_conf >= 0.5:
+                item.setdefault("evidence_grade", "inference")
+            else:
+                item.setdefault("evidence_grade", "speculation")
+            item["confidence"] = None  # discard the numeric value
+        return item
 
     @model_validator(mode="after")
     def _normalize_identity(self) -> "CandidateKnowledgeEntity":
@@ -98,6 +149,10 @@ class CandidateKnowledgeEntity(BaseModel):
             self.name = self.label
         if not self.id or not self.label:
             raise ValueError("Candidate entity requires id/temporary_id and label/name")
+        if self.evidence_grade and self.evidence_grade not in EVIDENCE_GRADES:
+            self.evidence_grade = "inference"
+        if self.reviewer_confidence and self.reviewer_confidence not in REVIEWER_CONFIDENCES:
+            self.reviewer_confidence = "ungraded"
         return self
 
 
@@ -120,20 +175,36 @@ class CandidateKnowledgeRelation(BaseModel):
     description: str | None = None
     evidence: str | None = None
     source_snippet: str | None = None
-    source_document: str | None = None
-    confidence: float | str = "medium"
+    source_document_id: str | None = None
+    # Deprecated: LLM-emitted float/string confidence — not a calibrated probability.
+    confidence: float | str | None = None
+    # How directly the document text supports this relation.
+    evidence_grade: str | None = None
+    # Set by the human reviewer during validation.
+    reviewer_comment: str | None = None
     properties: dict[str, Any] = Field(default_factory=dict)
 
     @model_validator(mode="before")
     @classmethod
     def _accept_ontology_shape(cls, value: Any) -> Any:
-        if isinstance(value, dict) and "subject_temporary_id" in value:
-            item = dict(value)
+        if not isinstance(value, dict):
+            return value
+        item = dict(value)
+        if "subject_temporary_id" in item:
             item.setdefault("source_entity_id", item.get("subject_temporary_id"))
             item.setdefault("target_entity_id", item.get("object_temporary_id"))
             item.setdefault("type", item.get("predicate"))
-            return item
-        return value
+        # Coerce numeric LLM confidence to evidence_grade (same logic as entity).
+        raw_conf = item.get("confidence")
+        if isinstance(raw_conf, (int, float)):
+            if raw_conf >= 0.8:
+                item.setdefault("evidence_grade", "paraphrase")
+            elif raw_conf >= 0.5:
+                item.setdefault("evidence_grade", "inference")
+            else:
+                item.setdefault("evidence_grade", "speculation")
+            item["confidence"] = None
+        return item
 
     @model_validator(mode="after")
     def _normalize_predicate(self) -> "CandidateKnowledgeRelation":
@@ -236,7 +307,8 @@ class EntityExtractor:
             "extract_relations.md",
             text,
             metadata or {},
-            extra_context={"candidate_entities": entity_payload},
+            # key matches {{entities_json}} placeholder in the template
+            extra_context={"entities_json": entity_payload},
         )
         payload = self.llm_service.generate_json(prompt)
         items = _coerce_items(payload, "relations")
@@ -247,10 +319,44 @@ class EntityExtractor:
         text: str,
         metadata: dict[str, Any] | None = None,
     ) -> ExtractionResult:
-        """Run classification + extraction, validate against ontology, then stage."""
-        classification = self.classify_document(text, metadata)
-        entities = self.extract_entities(text, metadata)
-        relations = self.extract_relations(text, entities, metadata)
+        """Run extraction, normalize IDs, validate against ontology, then stage.
+
+        After LLM extraction, each entity receives a stable UUIDv5 derived from
+        (source_document_id, normalised_label, type) so that re-extracting the
+        same document yields the same entity IDs.  Relation source/target IDs
+        are updated to match.  Ontology violations are logged separately and
+        only valid candidates are staged unless the validator itself fails.
+        """
+        meta = metadata or {}
+        classification = self.classify_document(text, meta)
+        entities = self.extract_entities(text, meta)
+
+        doc_id = str(
+            meta.get("source_document_id")
+            or meta.get("document_id")
+            or meta.get("source_document")
+            or ""
+        )
+        # Build temporary_id → stable UUIDv5 mapping so relations can be updated.
+        stable_doc_id = doc_id or None
+        tmp_to_stable: dict[str, str] = {}
+        for entity in entities:
+            sid = stable_entity_id(doc_id, entity.label or "", entity.type)
+            old_tmp = entity.temporary_id or entity.id or ""
+            tmp_to_stable[old_tmp] = sid
+            entity.id = sid
+            entity.temporary_id = sid
+            entity.source_document_id = stable_doc_id
+
+        relations = self.extract_relations(text, entities, meta)
+        for relation in relations:
+            if relation.source_entity_id in tmp_to_stable:
+                relation.source_entity_id = tmp_to_stable[relation.source_entity_id]
+                relation.subject_temporary_id = relation.source_entity_id
+            if relation.target_entity_id in tmp_to_stable:
+                relation.target_entity_id = tmp_to_stable[relation.target_entity_id]
+                relation.object_temporary_id = relation.target_entity_id
+            relation.source_document_id = stable_doc_id
 
         try:
             from app.services.ontology_validator import OntologyValidator
@@ -279,7 +385,6 @@ class EntityExtractor:
             staged_entities = entities
             staged_relations = relations
             self._write_candidates(entities, relations)
-
         return ExtractionResult(
             classification=classification,
             entities=staged_entities,
@@ -294,17 +399,30 @@ class EntityExtractor:
         metadata: dict[str, Any],
         extra_context: dict[str, Any] | None = None,
     ) -> str:
+        """Load a prompt template and substitute all {{key}} placeholders.
+
+        Built-in substitutions:
+          {{document_text}}     — the raw document text
+          {{document_metadata}} — JSON-serialised metadata dict
+          {{entity_types}}      — allowed entity type block from the ontology
+
+        Additional substitutions come from extra_context, where each key maps
+        to a value that is JSON-serialised if it is not already a string.
+        Unrecognised placeholders are left as-is so the model receives the
+        literal text rather than an empty string.
+        """
         template = _load_prompt(prompt_name).strip()
-        substitutions = {
-            "{{document_text}}": text,
-            "{{document_metadata}}": _json_for_prompt(metadata),
-            "{{entities_json}}": _json_for_prompt((extra_context or {}).get("candidate_entities", [])),
-            "{{entity_types}}": self._entity_types_block(),
+        substitutions: dict[str, str] = {
+            "document_text": text,
+            "document_metadata": _json_for_prompt(metadata),
+            "entity_types": self._entity_types_block(),
         }
-        result = template
-        for placeholder, value in substitutions.items():
-            result = result.replace(placeholder, value)
-        return result
+        if extra_context:
+            for key, value in extra_context.items():
+                substitutions[key] = value if isinstance(value, str) else _json_for_prompt(value)
+        for placeholder, replacement in substitutions.items():
+            template = template.replace("{{" + placeholder + "}}", replacement)
+        return template
 
     def _entity_types_block(self) -> str:
         try:
@@ -346,15 +464,13 @@ class EntityExtractor:
         relations: list[CandidateKnowledgeRelation],
     ) -> None:
         self.staging_dir.mkdir(parents=True, exist_ok=True)
-        self._merge_and_write(
+        self._accumulate_json(
             self.staging_dir / "candidate_entities.json",
             [_dump_model(entity) for entity in entities],
-            merge_key="id",
         )
-        self._merge_and_write(
+        self._accumulate_json(
             self.staging_dir / "candidate_relations.json",
             [_ensure_relation_id(r) for r in (_dump_model(rel) for rel in relations)],
-            merge_key="id",
         )
 
     def _merge_and_write(self, path: Path, new_items: list[dict[str, Any]], merge_key: str = "id") -> None:
@@ -373,7 +489,45 @@ class EntityExtractor:
         self._atomic_write_json(path, list(existing.values()))
 
     @staticmethod
+    def _accumulate_json(path: Path, new_records: list[dict[str, Any]]) -> None:
+        """Merge new_records into the existing staging file keyed by 'id'.
+
+        New records overwrite existing ones with the same id; records from
+        prior extraction runs are preserved.  Records without an explicit id
+        are keyed by a stable content hash so they are still deduplicated.
+        This prevents multi-document pipelines from silently discarding
+        earlier extractions.
+        """
+        import hashlib
+
+        def _record_key(item: dict[str, Any]) -> str:
+            explicit = item.get("id") or item.get("temporary_id")
+            if explicit:
+                return str(explicit)
+            return hashlib.sha256(
+                json.dumps(item, sort_keys=True, ensure_ascii=True).encode()
+            ).hexdigest()[:16]
+
+        existing: list[dict[str, Any]] = []
+        if path.exists():
+            try:
+                raw = json.loads(path.read_text(encoding="utf-8"))
+                existing = raw if isinstance(raw, list) else []
+            except json.JSONDecodeError:
+                existing = []
+
+        merged: dict[str, dict[str, Any]] = {_record_key(item): item for item in existing}
+        for item in new_records:
+            merged[_record_key(item)] = item
+
+        text = json.dumps(list(merged.values()), ensure_ascii=True, indent=2, sort_keys=True)
+        tmp_path = path.with_suffix(f"{path.suffix}.tmp")
+        tmp_path.write_text(f"{text}\n", encoding="utf-8")
+        tmp_path.replace(path)
+
+    @staticmethod
     def _atomic_write_json(path: Path, payload: list[dict[str, Any]]) -> None:
+        """Fully replace a staging file (used for explicit resets)."""
         text = json.dumps(payload, ensure_ascii=True, indent=2, sort_keys=True)
         tmp_path = path.with_suffix(f"{path.suffix}.tmp")
         tmp_path.write_text(f"{text}\n", encoding="utf-8")

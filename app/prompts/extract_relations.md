@@ -20,10 +20,12 @@ Allowed relations:
 
 Rules:
 1. Return strict JSON only.
-2. Do not invent relations.
-3. Every relation must include a source snippet.
+2. Do not invent relations not supported by the document text.
+3. Every relation must include a source_snippet copied verbatim or closely paraphrased from the document.
 4. Use only temporary IDs provided in the entity list.
 5. If uncertain, omit the relation.
+6. Set evidence_grade to "direct_quote", "paraphrase", or "inference" to describe
+   how directly the document supports this relation.
 
 JSON schema:
 {
@@ -33,7 +35,7 @@ JSON schema:
       "predicate": "SUPPORTED_BY",
       "object_temporary_id": "TMP-002",
       "source_snippet": "...",
-      "confidence": "low|medium|high"
+      "evidence_grade": "direct_quote|paraphrase|inference"
     }
   ]
 }

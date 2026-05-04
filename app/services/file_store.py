@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import inspect
 import json
 import mimetypes
 import os
@@ -14,18 +15,34 @@ from typing import BinaryIO
 from app.services.extractors import ExtractionError, extract_text_from_path, is_supported_file
 from app.services.markdown_converter import document_to_markdown, markdown_filename
 
-_PROJECT_ROOT = Path(__file__).resolve().parents[2]
+try:
+    from app.config import DOCUMENTS_JSON
+except ImportError:
+    DOCUMENTS_JSON = Path(os.getenv("FOUNDERGRAPH_DATA_DIR", "data")) / "staging" / "documents.json"
 
 try:
-    from app.config import DOCUMENTS_JSON, ORIGINAL_FILES_DIR, EXTRACTED_TEXT_DIR, VAULT_DOCUMENTS_DIR
-except ImportError:
-    _base = Path(os.getenv("FOUNDERGRAPH_DATA_DIR", str(_PROJECT_ROOT / "data")))
-    DOCUMENTS_JSON = _base / "staging" / "documents.json"
-    ORIGINAL_FILES_DIR = _base / "original_files"
-    EXTRACTED_TEXT_DIR = _base / "extracted_text"
-    VAULT_DOCUMENTS_DIR = Path(os.getenv("FOUNDERGRAPH_VAULT_DIR", str(_PROJECT_ROOT / "vault"))) / "documents"
+    from app.models.document import SourceDocument
+except ImportError:  # The skeletal repo may not have models yet.
 
-from app.models.document import SourceDocument
+    @dataclass
+    class SourceDocument:  # type: ignore[no-redef]
+        id: str
+        original_filename: str
+        file_type: str
+        mime_type: str
+        size_bytes: int
+        sha256: str
+        stored_original_path: str
+        extracted_text_path: str
+        markdown_path: str
+        created_at: str
+        error: str | None = None
+
+
+BASE_DATA_DIR = Path(os.getenv("FOUNDERGRAPH_DATA_DIR", "data"))
+ORIGINAL_FILES_DIR = BASE_DATA_DIR / "original_files"
+EXTRACTED_TEXT_DIR = BASE_DATA_DIR / "extracted_text"
+VAULT_DOCUMENTS_DIR = Path(os.getenv("FOUNDERGRAPH_VAULT_DIR", "vault")) / "documents"
 
 
 @dataclass
@@ -79,7 +96,7 @@ def ingest_document(uploaded_file: BinaryIO, filename: str, mime_type: str | Non
 
 def append_document_record(source_document: SourceDocument) -> None:
     DOCUMENTS_JSON.parent.mkdir(parents=True, exist_ok=True)
-    records: list = []
+    records = []
     if DOCUMENTS_JSON.exists():
         try:
             records = json.loads(DOCUMENTS_JSON.read_text(encoding="utf-8"))
@@ -91,11 +108,7 @@ def append_document_record(source_document: SourceDocument) -> None:
     record = _model_dump(source_document)
     records = [item for item in records if item.get("id") != record.get("id")]
     records.append(record)
-
-    text = json.dumps(records, indent=2, default=str) + "\n"
-    tmp_path = DOCUMENTS_JSON.with_suffix(DOCUMENTS_JSON.suffix + ".tmp")
-    tmp_path.write_text(text, encoding="utf-8")
-    tmp_path.replace(DOCUMENTS_JSON)
+    DOCUMENTS_JSON.write_text(json.dumps(records, indent=2, default=str) + "\n", encoding="utf-8")
 
 
 def store_original(uploaded_file: BinaryIO, filename: str) -> tuple[Path, str, int]:
@@ -142,17 +155,36 @@ def build_source_document(
     text_path: Path,
     markdown_path: Path,
 ) -> SourceDocument:
-    return SourceDocument.model_validate({
-        "id": digest[:16],
+    date_uploaded = datetime.now(UTC)
+    model_payload = {
+        "id": digest,  # full SHA-256 hex — no collision risk, stable across runs
         "title": Path(filename).stem,
         "original_filename": filename,
         "file_type": Path(filename).suffix.lower().lstrip("."),
         "original_path": str(original_path),
         "extracted_text_path": str(text_path),
         "markdown_path": str(markdown_path),
-        "date_uploaded": datetime.now(UTC),
+        "date_uploaded": date_uploaded,
         "extraction_status": "converted_to_markdown",
-    })
+    }
+    fallback_payload = {
+        "id": digest,  # full SHA-256 hex
+        "original_filename": filename,
+        "file_type": Path(filename).suffix.lower().lstrip("."),
+        "mime_type": mime_type,
+        "size_bytes": size_bytes,
+        "sha256": digest,
+        "stored_original_path": str(original_path),
+        "extracted_text_path": str(text_path),
+        "markdown_path": str(markdown_path),
+        "created_at": date_uploaded.isoformat(),
+        "error": None,
+    }
+
+    try:
+        return SourceDocument(**_compatible_payload(SourceDocument, model_payload))
+    except TypeError:
+        return SourceDocument(**_compatible_payload(SourceDocument, fallback_payload))
 
 
 def _safe_filename(filename: str) -> str:
@@ -166,6 +198,22 @@ def _rewind(uploaded_file: BinaryIO) -> None:
         uploaded_file.seek(0)
     except (AttributeError, OSError):
         return
+
+
+def _compatible_payload(model: type, payload: dict[str, object]) -> dict[str, object]:
+    fields = getattr(model, "model_fields", None) or getattr(model, "__fields__", None)
+    if fields:
+        return {key: value for key, value in payload.items() if key in fields}
+
+    try:
+        signature = inspect.signature(model)
+    except (TypeError, ValueError):
+        return payload
+
+    if any(parameter.kind == inspect.Parameter.VAR_KEYWORD for parameter in signature.parameters.values()):
+        return payload
+
+    return {key: value for key, value in payload.items() if key in signature.parameters}
 
 
 def _model_dump(model: object) -> dict[str, object]:

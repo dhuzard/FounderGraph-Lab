@@ -1,65 +1,91 @@
+version: "1.0.0"
+updated_at: "2026-05-03"
+description: "FounderGraph Lab startup knowledge ontology"
+
 classes:
   Startup:
     description: "The startup or project being analyzed."
+    required_fields: [name]
     fields: [name, sector, maturity_stage, location]
   Founder:
     description: "A founder or key team member."
+    required_fields: [name]
     fields: [name, role, background]
   CustomerSegment:
     description: "A group of potential users, buyers, or beneficiaries."
+    required_fields: [name]
     fields: [name, description, urgency, willingness_to_pay]
   Problem:
     description: "A pain point or unmet need experienced by a customer segment."
+    required_fields: [label, description]
     fields: [label, description, severity, frequency]
   ValueProposition:
     description: "The promised value delivered by the startup."
+    required_fields: [label]
     fields: [label, description, differentiator]
   ProductFeature:
     description: "A technical or functional product component."
+    required_fields: [label]
     fields: [label, description, maturity, linked_problem]
   Assumption:
     description: "A claim that is not fully proven yet."
-    fields: [label, description, criticality, confidence, validation_status]
+    required_fields: [label, description]
+    fields: [label, description, criticality, evidence_grade, reviewer_confidence, validation_status]
   Evidence:
     description: "A source-backed observation supporting or contradicting an assumption."
-    fields: [label, source, evidence_type, strength]
+    required_fields: [label, source]
+    fields: [label, source, evidence_type, strength, evidence_grade]
   Risk:
     description: "A business, technical, regulatory, market, or execution risk."
+    required_fields: [label]
     fields: [label, risk_type, probability, impact, mitigation]
   Experiment:
     description: "A test designed to validate or invalidate an assumption."
+    required_fields: [label, hypothesis]
     fields: [label, hypothesis, method, success_criteria, status]
   Decision:
     description: "A strategic or operational decision."
+    required_fields: [label]
     fields: [label, date, rationale, decided_by]
   Milestone:
     description: "A time-bound objective."
+    required_fields: [label]
     fields: [label, deadline, success_criteria, status]
   GrantCall:
     description: "A funding opportunity."
+    required_fields: [name]
     fields: [name, funder, deadline, themes, fit_score]
   Investor:
     description: "An investor or investment organization."
+    required_fields: [name]
     fields: [name, stage, thesis]
   Partner:
     description: "A partner organization."
+    required_fields: [name]
     fields: [name, role, status]
   Competitor:
     description: "A competing product, company, or workaround."
+    required_fields: [name]
     fields: [name, differentiation]
   IPAsset:
     description: "An intellectual property asset."
+    required_fields: [name]
     fields: [name, status, owner]
   RegulatoryConstraint:
     description: "A regulatory or compliance constraint."
+    required_fields: [label]
     fields: [label, jurisdiction, impact]
   TechnicalDependency:
     description: "A technical dependency or integration requirement."
+    required_fields: [label]
     fields: [label, system, risk]
   FinancialHypothesis:
     description: "A financial forecast or business model hypothesis."
+    required_fields: [label]
     fields: [label, metric, assumption]
+
 relations:
+  # Core customer and problem graph
   - subject: Startup
     predicate: TARGETS
     object: CustomerSegment
@@ -72,6 +98,14 @@ relations:
   - subject: ValueProposition
     predicate: BASED_ON
     object: Problem
+  - subject: Startup
+    predicate: PROVIDES
+    object: ValueProposition
+  - subject: Partner
+    predicate: PROVIDES
+    object: ProductFeature
+
+  # Evidence and assumption graph
   - subject: Assumption
     predicate: SUPPORTED_BY
     object: Evidence
@@ -84,12 +118,36 @@ relations:
   - subject: Experiment
     predicate: GENERATES
     object: Evidence
-  - subject: Risk
-    predicate: THREATENS
-    object: Milestone
   - subject: Decision
     predicate: BASED_ON
     object: Evidence
+
+  # Risk and milestone graph
+  - subject: Risk
+    predicate: THREATENS
+    object: Milestone
+  - subject: TechnicalDependency
+    predicate: DEPENDS_ON
+    object: TechnicalDependency
+
+  # Competitive and IP graph
+  - subject: Competitor
+    predicate: COMPETES_ON
+    object: ValueProposition
+  - subject: IPAsset
+    predicate: PROTECTS
+    object: ProductFeature
+
+  # Funding graph
   - subject: GrantCall
     predicate: FUNDS
     object: Experiment
+
+  # Provenance meta-relations (any entity may be mentioned in a document or
+  # be the source of evidence — domain/range are intentionally permissive)
+  - subject: Document
+    predicate: MENTIONS
+    object: Entity
+  - subject: Document
+    predicate: SOURCE_OF
+    object: Evidence

@@ -155,7 +155,8 @@ def unsupported_assumption_audit() -> dict[str, Any]:
             "MATCH (a:Entity:Assumption) "
             "WHERE NOT (a)-[:SUPPORTED_BY]->(:Entity:Evidence) "
             "RETURN a.id AS id, a.label AS label, a.description AS description, "
-            "a.confidence AS confidence, a.source_file AS source_file, a.source_snippet AS source_snippet"
+            "a.evidence_grade AS evidence_grade, a.reviewer_confidence AS reviewer_confidence, "
+            "a.source_file AS source_file, a.source_snippet AS source_snippet"
         ),
     )
 

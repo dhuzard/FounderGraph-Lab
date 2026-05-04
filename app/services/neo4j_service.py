@@ -8,6 +8,8 @@ import re
 from dataclasses import dataclass
 from typing import Any, Protocol
 
+from app.services.ontology_validator import get_ontology
+
 
 SAFE_TOKEN = re.compile(r"^[A-Z][A-Z0-9_]*$")
 SAFE_LABEL = re.compile(r"^[A-Z][A-Za-z0-9_]*$")
@@ -118,17 +120,17 @@ class Neo4jService:
     ) -> None:
         self.config = config or Neo4jConfig.from_env()
         self.driver = driver or create_driver(self.config)
-        # Derive allowlists from the ontology YAML when not explicitly supplied.
-        if allowed_labels is None or allowed_relationships is None:
-            try:
-                from app.services.ontology_service import load_ontology
-                onto = load_ontology()
-                allowed_labels = allowed_labels or onto.allowed_labels()
-                allowed_relationships = allowed_relationships or onto.allowed_relationships()
-            except Exception:
-                pass
-        self.allowed_labels = allowed_labels or DEFAULT_ALLOWED_LABELS
-        self.allowed_relationships = allowed_relationships or DEFAULT_ALLOWED_RELATIONSHIPS
+        # Derive allowed sets from the ontology YAML when not overridden
+        # explicitly (e.g. in tests).  Fall back to the hard-coded defaults if
+        # the ontology produces an empty set (missing YAML, parse error, etc.).
+        ontology = get_ontology()
+        ontology_labels = ontology.allowed_labels or DEFAULT_ALLOWED_LABELS
+        ontology_rels = ontology.allowed_relationships or DEFAULT_ALLOWED_RELATIONSHIPS
+        self.allowed_labels = allowed_labels if allowed_labels is not None else ontology_labels
+        self.allowed_relationships = (
+            allowed_relationships if allowed_relationships is not None else ontology_rels
+        )
+        self.ontology = ontology
 
     def close(self) -> None:
         self.driver.close()
@@ -146,11 +148,92 @@ class Neo4jService:
             for statement in statements:
                 session.run(statement)
 
+    # ------------------------------------------------------------------
+    # Public single-item write helpers
+    # ------------------------------------------------------------------
+
     def upsert_document(self, document: dict[str, Any]) -> None:
+        for query, params in self._document_ops(document):
+            self._run(query, params)
+
+    def upsert_entity(self, entity: dict[str, Any]) -> None:
+        for query, params in self._entity_ops(entity):
+            self._run(query, params)
+
+    def upsert_relation(self, relation: dict[str, Any]) -> None:
+        # Validate whitelist and domain/range first (pure Python, no DB access).
+        ops = self._relation_ops(relation)
+        # Then verify both endpoint entities exist in the graph.
+        self._pre_check_relation_endpoints(relation)
+        for query, params in ops:
+            self._run(query, params)
+
+    def link_document_entity(self, document_id: str, entity_id: str, snippet: str = "") -> None:
+        params = {"document_id": document_id, "entity_id": entity_id, "source_snippet": snippet}
+        query = """
+        MERGE (d:Document {id: $document_id})
+        ON CREATE SET d.created_at = datetime(), d.imported_at = datetime()
+        WITH d
+        MATCH (e:Entity {id: $entity_id})
+        MERGE (d)-[r:MENTIONS {entity_id: $entity_id}]->(e)
+        SET r.source_snippet = $source_snippet,
+            r.updated_at = datetime()
+        """
+        self._run(query, params)
+
+    def upsert_validated_knowledge(
+        self,
+        entities: list[dict[str, Any]],
+        relations: list[dict[str, Any]],
+        documents: list[dict[str, Any]] | None = None,
+    ) -> None:
+        """Write all documents, entities, and relations in a single transaction.
+
+        All validation (whitelist checks, domain/range, endpoint existence) runs
+        before any write so that the transaction contains no surprises.  A failure
+        rolls back every write in the batch, preventing partial graph states.
+
+        Relations whose endpoints are being written in the same batch are trusted
+        without a DB round-trip.  Endpoints NOT in the batch must already exist as
+        validated Entity nodes; a missing endpoint raises Neo4jServiceError before
+        the transaction begins.
+        """
+        ops: list[tuple[str, dict[str, Any]]] = []
+        for document in documents or []:
+            ops.extend(self._document_ops(document))
+        for entity in entities:
+            ops.extend(self._entity_ops(entity))
+
+        # IDs being written in this batch — relations may safely reference them.
+        batch_ids = {str(e.get("id", "")) for e in entities if e.get("id")}
+
+        # Build and validate all relation ops (whitelist + domain/range) before
+        # any DB access, so structural errors surface immediately.
+        validated_relation_ops = [self._relation_ops(r) for r in relations]
+
+        # Verify endpoint existence now that whitelist/domain-range checks passed.
+        for relation in relations:
+            self._pre_check_relation_endpoints(relation, known_ids=batch_ids)
+
+        for rel_ops in validated_relation_ops:
+            ops.extend(rel_ops)
+
+        def _write_all(tx: Any) -> None:
+            for query, params in ops:
+                tx.run(query, params)
+
+        with self._session() as session:
+            session.execute_write(_write_all)
+
+    # ------------------------------------------------------------------
+    # Internal query builders  (validation + parameter assembly only)
+    # ------------------------------------------------------------------
+
+    def _document_ops(self, document: dict[str, Any]) -> list[tuple[str, dict[str, Any]]]:
         document_id = document.get("id") or document.get("document_id") or document.get("source_path")
         if not document_id:
             raise Neo4jServiceError("Document requires id, document_id, or source_path")
-        params = {
+        params: dict[str, Any] = {
             "id": str(document_id),
             "title": document.get("title", ""),
             "source_path": document.get("source_path") or document.get("original_path", ""),
@@ -165,24 +248,28 @@ class Neo4jService:
             d.metadata_json = $metadata_json,
             d.updated_at = datetime()
         """
-        self._run(query, params)
+        return [(query, params)]
 
-    def upsert_entity(self, entity: dict[str, Any]) -> None:
+    def _entity_ops(self, entity: dict[str, Any]) -> list[tuple[str, dict[str, Any]]]:
         self._require_validated(entity, "entity")
         entity_id = entity.get("id")
         if not entity_id:
             raise Neo4jServiceError("Validated entity requires id")
         label = self._safe_label(entity.get("type") or entity.get("label") or "Entity")
-        params = {
+        params: dict[str, Any] = {
             "id": str(entity_id),
             "name": entity.get("name") or entity.get("label", ""),
             "display_label": entity.get("label") or entity.get("name", ""),
             "type": entity.get("type", label),
             "description": entity.get("description", ""),
+            "evidence_grade": entity.get("evidence_grade"),
+            "reviewer_confidence": entity.get("reviewer_confidence"),
+            "reviewer_comment": entity.get("reviewer_comment"),
             "source_snippet": entity.get("source_snippet", ""),
             "source_document_id": entity.get("source_document_id"),
             "source_file": entity.get("source_file"),
             "source_location": entity.get("source_location"),
+            "ontology_version": self.ontology.version,
             "provenance_json": json_property(entity.get("provenance", {})),
             "metadata_json": json_property(entity.get("metadata", {})),
             "status": validation_status(entity),
@@ -194,29 +281,62 @@ class Neo4jService:
             e.label = $display_label,
             e.type = $type,
             e.description = $description,
+            e.evidence_grade = $evidence_grade,
+            e.reviewer_confidence = $reviewer_confidence,
+            e.reviewer_comment = $reviewer_comment,
             e.source_snippet = $source_snippet,
             e.source_document_id = $source_document_id,
             e.source_file = $source_file,
             e.source_location = $source_location,
+            e.ontology_version = $ontology_version,
             e.provenance_json = $provenance_json,
             e.metadata_json = $metadata_json,
             e.status = $status,
             e.validation_status = $status,
             e.updated_at = datetime()
         """
-        self._run(query, params)
+        ops: list[tuple[str, dict[str, Any]]] = [(query, params)]
         if params.get("source_document_id"):
-            self.link_document_entity(str(params["source_document_id"]), str(entity_id), str(params.get("source_snippet") or ""))
+            link_params: dict[str, Any] = {
+                "document_id": str(params["source_document_id"]),
+                "entity_id": str(entity_id),
+                "source_snippet": str(params.get("source_snippet") or ""),
+            }
+            # MERGE the Document node so provenance links work even when the
+            # document was not explicitly written via upsert_document first.
+            link_query = """
+            MERGE (d:Document {id: $document_id})
+            ON CREATE SET d.created_at = datetime(), d.imported_at = datetime()
+            WITH d
+            MATCH (e:Entity {id: $entity_id})
+            MERGE (d)-[r:MENTIONS {entity_id: $entity_id}]->(e)
+            SET r.source_snippet = $source_snippet,
+                r.updated_at = datetime()
+            """
+            ops.append((link_query, link_params))
+        return ops
 
-    def upsert_relation(self, relation: dict[str, Any]) -> None:
+    def _relation_ops(self, relation: dict[str, Any]) -> list[tuple[str, dict[str, Any]]]:
         self._require_validated(relation, "relation")
         source_id = relation.get("source_entity_id") or relation.get("subject_id") or relation.get("source")
         target_id = relation.get("target_entity_id") or relation.get("object_id") or relation.get("target")
         if not source_id or not target_id:
             raise Neo4jServiceError("Validated relation requires source and target entity ids")
-        rel_type = self._safe_relationship(relation.get("predicate") or relation.get("type") or relation.get("relation") or "RELATED_TO")
+        rel_type = self._safe_relationship(
+            relation.get("predicate") or relation.get("type") or relation.get("relation") or "RELATED_TO"
+        )
+        source_type = relation.get("subject_type") or relation.get("source_type")
+        target_type = relation.get("object_type") or relation.get("target_type")
+        # TODO(domain-range): source_type/target_type should be inferred from the
+        # existing Entity node labels read from the graph rather than trusted from
+        # the relation JSON.  LLM-emitted subject_type/object_type are unreliable.
+        # See validate_relation() in ontology_validator.py.
+        if not self.ontology.validate_relation(rel_type, source_type, target_type):
+            raise Neo4jServiceError(
+                f"Relation {source_type} -{rel_type}-> {target_type} violates ontology domain/range constraints"
+            )
         relation_id = relation.get("id") or f"{source_id}:{rel_type}:{target_id}"
-        params = {
+        params: dict[str, Any] = {
             "id": str(relation_id),
             "source_id": str(source_id),
             "target_id": str(target_id),
@@ -225,7 +345,9 @@ class Neo4jService:
             "source_file": relation.get("source_file"),
             "provenance_json": json_property(relation.get("provenance", {})),
             "metadata_json": json_property(relation.get("metadata", {})),
-            "confidence": relation.get("confidence"),
+            "evidence_grade": relation.get("evidence_grade"),
+            "reviewer_comment": relation.get("reviewer_comment"),
+            "ontology_version": self.ontology.version,
             "status": validation_status(relation),
         }
         query = f"""
@@ -237,35 +359,13 @@ class Neo4jService:
             r.source_file = $source_file,
             r.provenance_json = $provenance_json,
             r.metadata_json = $metadata_json,
-            r.confidence = $confidence,
+            r.evidence_grade = $evidence_grade,
+            r.reviewer_comment = $reviewer_comment,
+            r.ontology_version = $ontology_version,
             r.status = $status,
             r.updated_at = datetime()
         """
-        self._run(query, params)
-
-    def link_document_entity(self, document_id: str, entity_id: str, snippet: str = "") -> None:
-        params = {"document_id": document_id, "entity_id": entity_id, "source_snippet": snippet}
-        query = """
-        MATCH (d:Document {id: $document_id})
-        MATCH (e:Entity {id: $entity_id})
-        MERGE (d)-[r:MENTIONS {entity_id: $entity_id}]->(e)
-        SET r.source_snippet = $source_snippet,
-            r.updated_at = datetime()
-        """
-        self._run(query, params)
-
-    def upsert_validated_knowledge(
-        self,
-        entities: list[dict[str, Any]],
-        relations: list[dict[str, Any]],
-        documents: list[dict[str, Any]] | None = None,
-    ) -> None:
-        for document in documents or []:
-            self.upsert_document(document)
-        for entity in entities:
-            self.upsert_entity(entity)
-        for relation in relations:
-            self.upsert_relation(relation)
+        return [(query, params)]
 
     def graph_snapshot(
         self,
@@ -299,16 +399,16 @@ class Neo4jService:
             rel["source"] = source_id
             rel["target"] = target_id
             edges.append(rel)
-        result: dict[str, Any] = {"nodes": list(nodes.values()), "edges": edges}
-        if len(rows) >= limit:
-            result["truncated"] = True
-        return result
+        return {"nodes": list(nodes.values()), "edges": edges}
 
     def get_all_entities(self, limit: int = 200) -> list[dict[str, Any]]:
         query = """
         MATCH (e:Entity)
         RETURN e.id AS id, e.label AS label, e.name AS name, e.type AS type,
-               e.description AS description, e.confidence AS confidence,
+               e.description AS description,
+               e.evidence_grade AS evidence_grade,
+               e.reviewer_confidence AS reviewer_confidence,
+               e.reviewer_comment AS reviewer_comment,
                e.validation_status AS validation_status, e.source_file AS source_file,
                e.source_snippet AS source_snippet
         LIMIT $limit
@@ -323,8 +423,10 @@ class Neo4jService:
         MATCH (a:Entity:Assumption)
         WHERE NOT (a)-[:SUPPORTED_BY]->(:Entity:Evidence)
         RETURN a.id AS id, a.label AS label, a.description AS description,
-               a.confidence AS confidence, a.source_file AS source_file,
-               a.source_snippet AS source_snippet
+               a.evidence_grade AS evidence_grade,
+               a.reviewer_confidence AS reviewer_confidence,
+               a.reviewer_comment AS reviewer_comment,
+               a.source_file AS source_file, a.source_snippet AS source_snippet
         """
         return self._rows(query, {})
 
@@ -363,6 +465,48 @@ class Neo4jService:
         LIMIT $limit
         """
         return self._rows(query, {"limit": int(limit)})
+
+    def _verify_entity_exists(self, entity_id: str) -> bool:
+        """Return True if an Entity node with this id is present in the graph."""
+        rows = self._rows(
+            "MATCH (e:Entity {id: $id}) RETURN count(e) AS n",
+            {"id": str(entity_id)},
+        )
+        return bool(rows and rows[0].get("n", 0) > 0)
+
+    def _pre_check_relation_endpoints(
+        self,
+        relation: dict[str, Any],
+        known_ids: set[str] | None = None,
+    ) -> None:
+        """Raise Neo4jServiceError if either endpoint Entity is absent from the graph.
+
+        known_ids, when provided, are entity IDs being written in the same batch.
+        They are trusted without a DB round-trip so that entities and relations
+        can be written together in one upsert_validated_knowledge call.
+        """
+        known = known_ids or set()
+        source_id = str(
+            relation.get("source_entity_id")
+            or relation.get("subject_id")
+            or relation.get("source")
+            or ""
+        )
+        target_id = str(
+            relation.get("target_entity_id")
+            or relation.get("object_id")
+            or relation.get("target")
+            or ""
+        )
+        rel_type = relation.get("predicate") or relation.get("type") or "RELATED_TO"
+        if source_id not in known and not self._verify_entity_exists(source_id):
+            raise Neo4jServiceError(
+                f"Cannot create {rel_type} relation: missing source entity {source_id!r}"
+            )
+        if target_id not in known and not self._verify_entity_exists(target_id):
+            raise Neo4jServiceError(
+                f"Cannot create {rel_type} relation: missing target entity {target_id!r}"
+            )
 
     def _safe_label(self, value: str) -> str:
         label = normalize_label(value)
