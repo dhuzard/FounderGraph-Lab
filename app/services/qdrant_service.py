@@ -86,6 +86,8 @@ def _json_request(
     try:
         with urllib.request.urlopen(request, timeout=timeout) as response:
             raw = response.read().decode("utf-8")
+    except urllib.error.HTTPError as exc:
+        raise VectorServiceUnavailable(f"{exc}. Check that the requested Ollama model is pulled.") from exc
     except (urllib.error.URLError, TimeoutError, OSError) as exc:
         raise VectorServiceUnavailable(str(exc)) from exc
     return json.loads(raw) if raw else {}

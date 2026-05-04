@@ -6,8 +6,6 @@ import streamlit.components.v1 as components
 from app.config import DOCUMENTS_JSON
 from app.services.graph_visualizer import graph_to_pyvis_html
 from app.services.neo4j_service import (
-    DEFAULT_ALLOWED_LABELS,
-    DEFAULT_ALLOWED_RELATIONSHIPS,
     Neo4jService,
     Neo4jServiceError,
 )
@@ -45,8 +43,16 @@ def _documents_from_validated_entities(entities: list[dict]) -> list[dict]:
 
 with st.sidebar:
     st.header("Filters")
-    selected_labels = st.multiselect("Entity labels", sorted(DEFAULT_ALLOWED_LABELS - {"Document"}))
-    selected_relationships = st.multiselect("Relations", sorted(DEFAULT_ALLOWED_RELATIONSHIPS))
+    try:
+        filter_service = Neo4jService()
+        label_options = sorted(filter_service.allowed_labels - {"Document", "Entity"})
+        relationship_options = sorted(filter_service.allowed_relationships)
+        filter_service.close()
+    except Exception:
+        label_options = []
+        relationship_options = []
+    selected_labels = st.multiselect("Entity labels", label_options)
+    selected_relationships = st.multiselect("Relations", relationship_options)
     limit = st.slider("Max relations", min_value=10, max_value=500, value=100, step=10)
     load_graph = st.button("Load graph", type="primary")
 
@@ -82,13 +88,18 @@ if load_graph:
         )
     st.metric("Nodes", len(graph["nodes"]))
     st.metric("Relations", len(graph["edges"]))
-    components.html(graph_to_pyvis_html(graph), height=760, scrolling=True)
-
-    with st.expander("Metadata and provenance"):
+    if not graph["edges"]:
+        st.warning(
+            "No relationships matched the current filters. Clear filters, increase the relation limit, "
+            "or write validated knowledge to Neo4j first."
+        )
+    with st.expander("Graph data", expanded=not graph["edges"]):
         st.subheader("Nodes")
         st.dataframe(graph["nodes"], use_container_width=True)
         st.subheader("Relations")
         st.dataframe(graph["edges"], use_container_width=True)
+    components.html(graph_to_pyvis_html(graph), height=760, scrolling=True)
+
 else:
     st.info("Choose filters and load the graph.")
 
