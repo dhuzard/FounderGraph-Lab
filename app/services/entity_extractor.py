@@ -13,7 +13,7 @@ from typing import Any, Iterable
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
 
-from app.services.llm_service import LLMInvalidJSONError, LLMServiceError, OllamaLLMService
+from app.services.llm_service import LLMInvalidJSONError, LLMService, LLMServiceError, OllamaLLMService
 
 
 try:  # Integrator-owned shared models may be added later.
@@ -42,6 +42,14 @@ def stable_entity_id(doc_id: str, label: str, entity_type: str) -> str:
     """
     key = f"{doc_id}::{label.strip().lower()}::{entity_type}"
     return str(uuid.uuid5(_ENTITY_ID_NAMESPACE, key))
+
+
+_DEFAULT_ENTITY_TYPES = (
+    "- CustomerSegment\n- Problem\n- ValueProposition\n- ProductFeature\n"
+    "- Assumption\n- Evidence\n- Risk\n- Experiment\n- Decision\n- Milestone\n"
+    "- GrantCall\n- Investor\n- Partner\n- Competitor\n- IPAsset\n"
+    "- RegulatoryConstraint\n- TechnicalDependency\n- FinancialHypothesis"
+)
 
 
 class DocumentClassification(BaseModel):
@@ -230,6 +238,15 @@ def _json_for_prompt(value: Any) -> str:
     return json.dumps(value, ensure_ascii=True, sort_keys=True)
 
 
+def _ensure_relation_id(r: dict[str, Any]) -> dict[str, Any]:
+    if r.get("id"):
+        return r
+    src = r.get("source_entity_id") or r.get("subject_temporary_id") or ""
+    pred = r.get("predicate") or r.get("type") or "RELATED_TO"
+    tgt = r.get("target_entity_id") or r.get("object_temporary_id") or ""
+    return {**r, "id": f"{src}:{pred}:{tgt}"}
+
+
 def _coerce_items(payload: Any, key: str) -> list[Any]:
     if isinstance(payload, list):
         return payload
@@ -255,7 +272,7 @@ class EntityExtractor:
 
     def __init__(
         self,
-        llm_service: OllamaLLMService | None = None,
+        llm_service: LLMService | None = None,
         staging_dir: Path | str = DEFAULT_STAGING_DIR,
     ) -> None:
         self.llm_service = llm_service or OllamaLLMService()
@@ -302,12 +319,13 @@ class EntityExtractor:
         text: str,
         metadata: dict[str, Any] | None = None,
     ) -> ExtractionResult:
-        """Run classification and extraction, then atomically stage JSON files.
+        """Run extraction, normalize IDs, validate against ontology, then stage.
 
         After LLM extraction, each entity receives a stable UUIDv5 derived from
         (source_document_id, normalised_label, type) so that re-extracting the
         same document yields the same entity IDs.  Relation source/target IDs
-        are updated to match.
+        are updated to match.  Ontology violations are logged separately and
+        only valid candidates are staged unless the validator itself fails.
         """
         meta = metadata or {}
         classification = self.classify_document(text, meta)
@@ -340,11 +358,37 @@ class EntityExtractor:
                 relation.object_temporary_id = relation.target_entity_id
             relation.source_document_id = stable_doc_id
 
-        self._write_candidates(entities, relations)
+        try:
+            from app.services.ontology_validator import OntologyValidator
+            report = OntologyValidator().validate(entities, relations)
+            # Stage only ontologically valid candidates; violations are logged separately.
+            valid_eids = {
+                str(e.get("id") or e.get("temporary_id"))
+                for e in report.valid_entities
+            }
+            valid_rkeys = {
+                (
+                    str(r.get("source_entity_id") or r.get("subject_temporary_id") or ""),
+                    str(r.get("predicate") or r.get("type") or ""),
+                    str(r.get("target_entity_id") or r.get("object_temporary_id") or ""),
+                )
+                for r in report.valid_relations
+            }
+            staged_entities = [e for e in entities if str(e.id or e.temporary_id) in valid_eids]
+            staged_relations = [
+                r for r in relations
+                if (str(r.source_entity_id), str(r.predicate or r.type), str(r.target_entity_id)) in valid_rkeys
+            ]
+            self._write_candidates(staged_entities, staged_relations)
+        except Exception:
+            # Validator failure must never block staging; fall back to writing all candidates.
+            staged_entities = entities
+            staged_relations = relations
+            self._write_candidates(entities, relations)
         return ExtractionResult(
             classification=classification,
-            entities=entities,
-            relations=relations,
+            entities=staged_entities,
+            relations=staged_relations,
             wrote_files=True,
         )
 
@@ -360,6 +404,7 @@ class EntityExtractor:
         Built-in substitutions:
           {{document_text}}     — the raw document text
           {{document_metadata}} — JSON-serialised metadata dict
+          {{entity_types}}      — allowed entity type block from the ontology
 
         Additional substitutions come from extra_context, where each key maps
         to a value that is JSON-serialised if it is not already a string.
@@ -370,6 +415,7 @@ class EntityExtractor:
         substitutions: dict[str, str] = {
             "document_text": text,
             "document_metadata": _json_for_prompt(metadata),
+            "entity_types": self._entity_types_block(),
         }
         if extra_context:
             for key, value in extra_context.items():
@@ -377,6 +423,20 @@ class EntityExtractor:
         for placeholder, replacement in substitutions.items():
             template = template.replace("{{" + placeholder + "}}", replacement)
         return template
+
+    def _entity_types_block(self) -> str:
+        try:
+            from app.services.ontology_service import load_ontology
+            config = load_ontology()
+            if config.entity_classes:
+                lines = []
+                for name, cls in config.entity_classes.items():
+                    suffix = f": {cls.description}" if cls.description else ""
+                    lines.append(f"- {name}{suffix}")
+                return "\n".join(lines)
+        except Exception:
+            pass
+        return _DEFAULT_ENTITY_TYPES
 
     def _validate_entities(self, items: list[Any]) -> list[CandidateKnowledgeEntity]:
         staged: list[CandidateKnowledgeEntity] = []
@@ -410,8 +470,23 @@ class EntityExtractor:
         )
         self._accumulate_json(
             self.staging_dir / "candidate_relations.json",
-            [_dump_model(relation) for relation in relations],
+            [_ensure_relation_id(r) for r in (_dump_model(rel) for rel in relations)],
         )
+
+    def _merge_and_write(self, path: Path, new_items: list[dict[str, Any]], merge_key: str = "id") -> None:
+        """Merge new_items into the existing staging file by merge_key, then write atomically."""
+        existing: dict[str, dict[str, Any]] = {}
+        if path.exists():
+            try:
+                for item in json.loads(path.read_text(encoding="utf-8")):
+                    if isinstance(item, dict) and item.get(merge_key):
+                        existing[str(item[merge_key])] = item
+            except (json.JSONDecodeError, OSError):
+                pass
+        for item in new_items:
+            if isinstance(item, dict) and item.get(merge_key):
+                existing[str(item[merge_key])] = item
+        self._atomic_write_json(path, list(existing.values()))
 
     @staticmethod
     def _accumulate_json(path: Path, new_records: list[dict[str, Any]]) -> None:

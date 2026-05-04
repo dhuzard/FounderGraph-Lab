@@ -60,9 +60,15 @@ def test_extractor_writes_strict_json_staging_files(tmp_path):
             {
                 "entities": [
                     {
+                        "id": "alice",
+                        "name": "Alice",
+                        "type": "Founder",
+                        "confidence": 0.95,
+                    },
+                    {
                         "id": "acme-ai",
                         "name": "Acme AI",
-                        "type": "Company",
+                        "type": "Startup",
                         "confidence": 0.95,
                     }
                 ]
@@ -72,7 +78,7 @@ def test_extractor_writes_strict_json_staging_files(tmp_path):
                     {
                         "source_entity_id": "alice",
                         "target_entity_id": "acme-ai",
-                        "type": "FOUNDED",
+                        "type": "RELATED_TO",
                         "confidence": 0.8,
                     }
                 ]
@@ -88,31 +94,42 @@ def test_extractor_writes_strict_json_staging_files(tmp_path):
     relations = json.loads((tmp_path / "candidate_relations.json").read_text())
     # Entity ID is now a stable UUIDv5 keyed on (doc_id, normalised_label, type).
     # doc_id is resolved from metadata key "source_document" = "doc-1".
-    expected_entity_id = stable_entity_id("doc-1", "Acme AI", "Company")
-    # Relations whose endpoints are TMP-xxx get their IDs replaced with the
-    # stable UUIDs; "alice" has no matching entity so it stays as-is.
+    expected_founder_id = stable_entity_id("doc-1", "Alice", "Founder")
+    expected_startup_id = stable_entity_id("doc-1", "Acme AI", "Startup")
+    # Relations whose endpoints use original candidate IDs get replaced with
+    # stable UUIDs.
     # source_document_id is propagated from the doc_id resolved at extraction time.
     assert entities == [
         {
             "evidence_grade": "paraphrase",  # 0.95 → paraphrase
-            "id": expected_entity_id,
+            "id": expected_founder_id,
+            "label": "Alice",
+            "name": "Alice",
+            "source_document_id": "doc-1",
+            "temporary_id": expected_founder_id,
+            "type": "Founder",
+        },
+        {
+            "evidence_grade": "paraphrase",  # 0.95 → paraphrase
+            "id": expected_startup_id,
             "label": "Acme AI",
             "name": "Acme AI",
             "source_document_id": "doc-1",
-            "temporary_id": expected_entity_id,
-            "type": "Company",
+            "temporary_id": expected_startup_id,
+            "type": "Startup",
         }
     ]
     assert relations == [
         {
             "evidence_grade": "paraphrase",  # 0.8 → paraphrase
-            "object_temporary_id": expected_entity_id,
-            "predicate": "FOUNDED",
+            "id": f"{expected_founder_id}:RELATED_TO:{expected_startup_id}",
+            "object_temporary_id": expected_startup_id,
+            "predicate": "RELATED_TO",
             "source_document_id": "doc-1",
-            "source_entity_id": "alice",
-            "subject_temporary_id": "alice",
-            "target_entity_id": expected_entity_id,
-            "type": "FOUNDED",
+            "source_entity_id": expected_founder_id,
+            "subject_temporary_id": expected_founder_id,
+            "target_entity_id": expected_startup_id,
+            "type": "RELATED_TO",
         }
     ]
 
