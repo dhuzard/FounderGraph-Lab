@@ -1,4 +1,4 @@
-# FAIR-VCG-mentor — Fix Tracker
+# FounderGraph-Lab — Fix Tracker
 
 Items from assessment, code review, and architectural analysis.
 Legend: ✅ done · 🔴 high · 🟡 medium · 🟢 low
@@ -152,12 +152,12 @@ Legend: ✅ done · 🔴 high · 🟡 medium · 🟢 low
   any prompt edits.
 
 - 🟢 **Evaluate CocoIndex as ingestion layer** — CocoIndex (`Target = F(Source)`)
-  is compatible with FAIR-VCG-mentor's HITL model if scoped to the extraction-to-
+  is compatible with FounderGraph-Lab's HITL model if scoped to the extraction-to-
   staging half of the pipeline only. The boundary: CocoIndex owns
-  `files → LLM extraction → candidate_*.json`; FAIR-VCG-mentor's `ValidationStore`
+  `files → LLM extraction → candidate_*.json`; FounderGraph-Lab's `ValidationStore`
   and `Neo4jService` own `candidate_*.json → human review → validated → Neo4j`.
   Key prerequisite: write a custom CocoIndex `TargetConnector` that serialises
-  extracted records to FAIR-VCG-mentor's staging JSON format. Main gains: incremental
+  extracted records to FounderGraph-Lab's staging JSON format. Main gains: incremental
   memoization (unchanged docs never re-extracted), parallel async extraction,
   `instructor`-backed structured output, entity resolution across documents.
   Main risk: CocoIndex re-runs on prompt changes overwrite in-progress human reviews

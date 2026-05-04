@@ -1,6 +1,12 @@
 domain: Biotech / Life Sciences
 goals:
+- assumption_validation
+- investor_readiness
+- grant_applications
 - customer_discovery
+- milestone_tracking
+- risk_mapping
+- knowledge_management
 classes:
   Startup:
     description: The startup or project being analyzed.
@@ -138,6 +144,18 @@ classes:
     - label
     - metric
     - assumption
+  Site:
+    description: ''
+    fields: []
+  Vendor:
+    description: ''
+    fields: []
+  Country:
+    description: ''
+    fields: []
+  Blocker:
+    description: ''
+    fields: []
 relations:
 - subject: Startup
   predicate: TARGETS

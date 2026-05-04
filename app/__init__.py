@@ -1,1 +1,1 @@
-"""FAIR-VCG-mentor application package."""
+"""FounderGraph-Lab application package."""

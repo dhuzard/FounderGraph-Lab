@@ -1,6 +1,6 @@
 # TrialMesh Demo Dataset
 
-TrialMesh is a fictional startup built for live demos of FAIR-VCG-mentor.
+TrialMesh is a fictional startup built for live demos of FounderGraph-Lab.
 
 TrialMesh sells a local-first evidence orchestration platform for clinical trial startup teams. The product turns protocol packets, vendor trackers, monitoring notes, regulatory requirements, and operational evidence into a validated knowledge graph that helps sponsors and CROs reduce trial startup delays.
 

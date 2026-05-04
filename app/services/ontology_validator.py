@@ -1,4 +1,4 @@
-"""Runtime ontology loading and pre-staging validation for FAIR-VCG-mentor.
+"""Runtime ontology loading and pre-staging validation for FounderGraph-Lab.
 
 The runtime loader exposes labels, relationships, domain/range constraints,
 and required fields from app/ontology/startup_ontology.yaml.  The candidate

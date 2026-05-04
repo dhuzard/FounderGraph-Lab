@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 try:
@@ -10,6 +11,8 @@ except ImportError:  # pragma: no cover
 from app.services.extractors import GOOGLE_WORKSPACE_SHORTCUTS, SUPPORTED_EXTENSIONS, is_supported_file
 from app.services.file_store import FileStoreError, ingest_document
 from app.services.init_bridge import load_init_bridge, save_init_bridge
+from app.config import STAGING_DIR
+from scripts.export_google_drive_folder import export_google_shortcut, resolve_credentials_path
 
 
 def _ingest_file_from_path(file_path: Path) -> tuple[bool, str]:
@@ -37,6 +40,41 @@ def _scan_folder(folder: Path) -> tuple[list[Path], list[Path], list[Path]]:
     google_shortcuts = [p for p in all_files if p.suffix.lower() in GOOGLE_WORKSPACE_SHORTCUTS]
     unsupported = [p for p in all_files if p not in supported and p not in google_shortcuts]
     return supported, google_shortcuts, unsupported
+
+
+def _convert_google_shortcuts(
+    shortcuts: list[Path],
+    *,
+    root_folder: Path,
+    credentials_path: Path | None,
+) -> tuple[list[Path], list[tuple[str, str]], list[tuple[str, str]]]:
+    if not shortcuts:
+        return [], [], []
+    if credentials_path is None:
+        skipped = [(path.name, "No Google service account JSON path configured") for path in shortcuts]
+        return [], skipped, []
+
+    converted: list[Path] = []
+    skipped: list[tuple[str, str]] = []
+    failed: list[tuple[str, str]] = []
+
+    for shortcut in shortcuts:
+        try:
+            relative_parent = shortcut.parent.relative_to(root_folder)
+        except ValueError:
+            relative_parent = Path()
+        output_dir = STAGING_DIR / "google_shortcut_exports" / relative_parent
+        try:
+            converted_file = export_google_shortcut(
+                shortcut,
+                output_dir=output_dir,
+                service_account_file=credentials_path,
+            )
+            converted.append(converted_file)
+        except Exception as exc:
+            failed.append((shortcut.name, str(exc)))
+
+    return converted, skipped, failed
 
 
 def main() -> None:
@@ -119,6 +157,13 @@ def main() -> None:
             value=prefilled_folder,
             placeholder="/docs  or  /home/user/startup-files",
         )
+        credentials_default = os.getenv("GOOGLE_APPLICATION_CREDENTIALS", "").strip()
+        service_account_input = st.text_input(
+            "Google service account JSON path (optional)",
+            value=credentials_default,
+            placeholder="C:/path/to/service-account.json",
+            help="If provided, .gdoc/.gsheet/.gslides files will be exported and ingested automatically.",
+        )
 
         if st.button("Scan folder", type="primary", disabled=not folder_input):
             folder = Path(folder_input.strip())
@@ -129,17 +174,35 @@ def main() -> None:
                 st.error(f"Not a directory: `{folder}`")
             else:
                 files, google_shortcuts, unsupported = _scan_folder(folder)
+                credentials_path = resolve_credentials_path(Path(service_account_input.strip())) if service_account_input.strip() else resolve_credentials_path()
+                converted_shortcuts, skipped_shortcuts, failed_shortcuts = _convert_google_shortcuts(
+                    google_shortcuts,
+                    root_folder=folder,
+                    credentials_path=credentials_path,
+                )
+                files = files + converted_shortcuts
 
-                if google_shortcuts:
+                if skipped_shortcuts:
                     st.warning(
-                        f"Skipped {len(google_shortcuts)} Google Workspace shortcut file(s) "
-                        "(.gdoc/.gslides/.gsheet). Export those files from Google Drive first; "
-                        "the local shortcut only contains an ID, not the document text."
+                        f"Skipped {len(skipped_shortcuts)} Google Workspace shortcut file(s). "
+                        "Add a Google service account JSON path to convert them during ingestion."
                     )
+                if converted_shortcuts:
+                    st.success(f"Converted {len(converted_shortcuts)} Google Workspace shortcut file(s) for ingestion.")
+                if failed_shortcuts:
+                    st.error(f"{len(failed_shortcuts)} Google Workspace shortcut file(s) failed to convert.")
                 if unsupported:
                     with st.expander(f"Skipped {len(unsupported)} unsupported file(s)"):
                         for path in unsupported[:200]:
                             st.write(str(path.relative_to(folder)))
+                if skipped_shortcuts:
+                    with st.expander("Skipped Google Workspace shortcut files"):
+                        for name, msg in skipped_shortcuts[:200]:
+                            st.write(f"⚪ **{name}** — {msg}")
+                if failed_shortcuts:
+                    with st.expander("Failed Google Workspace conversions", expanded=True):
+                        for name, msg in failed_shortcuts[:200]:
+                            st.write(f"❌ **{name}** — {msg}")
 
                 if not files:
                     st.warning(

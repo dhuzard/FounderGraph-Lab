@@ -119,13 +119,13 @@ def render_setup_panel() -> None:
 
 def main() -> None:
     ensure_json_files()
-    st.set_page_config(page_title="FAIR-VCG-mentor", page_icon="FG", layout="wide")
-    st.title("FAIR-VCG-mentor")
+    st.set_page_config(page_title="FounderGraph-Lab", page_icon="FG", layout="wide")
+    st.title("FounderGraph-Lab")
     st.caption("Local-first startup knowledge graph lab")
 
     st.markdown(
         """
-        FAIR-VCG-mentor turns startup documents into validated, reusable knowledge.
+        FounderGraph-Lab turns startup documents into validated, reusable knowledge.
 
         Core loop:
         `files -> extraction -> Markdown vault -> candidate entities -> human validation -> Neo4j -> Qdrant -> audit agents`

@@ -1,3 +1,0 @@
-id,statement,category,confidence,status,owner
-assumption:spreadsheet-risk,Lean data teams will pay for automated spreadsheet and dashboard lineage checks,Demand,medium,testing,Mina
-assumption:setup-time,Customers can connect core metadata sources in under one hour without IT support,Activation,low,untested,Product

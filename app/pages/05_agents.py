@@ -14,7 +14,7 @@ def main() -> None:
         print("Streamlit is not installed.")
         return
 
-    st.set_page_config(page_title="FAIR-VCG-mentor Agents", layout="wide")
+    st.set_page_config(page_title="FounderGraph-Lab Agents", layout="wide")
     st.title("Agent Audits")
     st.caption("Read-only workflows combine Neo4j context, Qdrant snippets, and Ollama synthesis when available.")
 

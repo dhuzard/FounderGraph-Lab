@@ -13,8 +13,8 @@ docker compose up -d --build
 2. Pull Ollama models once:
 
 ```bash
-docker exec fair_vcg_mentor_ollama ollama pull llama3.1:8b
-docker exec fair_vcg_mentor_ollama ollama pull nomic-embed-text
+docker exec foundergraph_lab_ollama ollama pull llama3.1:8b
+docker exec foundergraph_lab_ollama ollama pull nomic-embed-text
 ```
 
 3. Open frontend:

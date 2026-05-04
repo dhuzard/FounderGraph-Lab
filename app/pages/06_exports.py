@@ -25,7 +25,7 @@ def main() -> None:
         print("Streamlit is not installed.")
         return
 
-    st.set_page_config(page_title="FAIR-VCG-mentor Exports", layout="wide")
+    st.set_page_config(page_title="FounderGraph-Lab Exports", layout="wide")
     st.title("Exports")
     st.caption("Generate graph, assumptions, evidence, risk, audit, and zip artifacts.")
 

@@ -1,4 +1,4 @@
-# FAIR-VCG-mentor — Multi-Agent Guidelines
+# FounderGraph-Lab — Multi-Agent Guidelines
 
 > Version: 1.0 | Date: 2026-05-01
 
@@ -94,7 +94,7 @@ To support a new entity type across the full stack:
 
 ## Part 2: Claude Code Multi-Agent Development Guidelines
 
-This section defines how to orchestrate multiple Claude agents (via Claude Code's `Agent` tool / SDK) when working on FAIR-VCG-mentor tasks. These patterns apply both to human developers using Claude Code and to automated pipelines.
+This section defines how to orchestrate multiple Claude agents (via Claude Code's `Agent` tool / SDK) when working on FounderGraph-Lab tasks. These patterns apply both to human developers using Claude Code and to automated pipelines.
 
 ### 2.1 Core Principles
 

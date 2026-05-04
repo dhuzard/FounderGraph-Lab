@@ -21,8 +21,8 @@ format:
 	ruff format .
 
 pull-models:
-	docker exec fair_vcg_mentor_ollama ollama pull llama3.1:8b
-	docker exec fair_vcg_mentor_ollama ollama pull nomic-embed-text
+	docker exec foundergraph_lab_ollama ollama pull llama3.1:8b
+	docker exec foundergraph_lab_ollama ollama pull nomic-embed-text
 
 init:
 	$(PYTHON) scripts/init_ontology.py

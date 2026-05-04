@@ -66,6 +66,12 @@ GOOGLE_EXPORTS: dict[str, dict[str, str]] = {
     },
 }
 
+GOOGLE_SHORTCUT_FORMATS = {
+    ".gdoc": ("application/vnd.google-apps.document", "docx"),
+    ".gsheet": ("application/vnd.google-apps.spreadsheet", "xlsx"),
+    ".gslides": ("application/vnd.google-apps.presentation", "pptx"),
+}
+
 FOLDER_MIME = "application/vnd.google-apps.folder"
 
 
@@ -113,6 +119,24 @@ def _build_drive_client(service_account_file: Path):
     return build("drive", "v3", credentials=credentials, cache_discovery=False)
 
 
+def resolve_credentials_path(service_account_file: Path | None = None) -> Path | None:
+    if service_account_file is not None:
+        return service_account_file
+    env_path = os.getenv("GOOGLE_APPLICATION_CREDENTIALS", "").strip()
+    if env_path:
+        return Path(env_path)
+    return None
+
+
+def build_drive_client(service_account_file: Path | None = None):
+    credentials_path = resolve_credentials_path(service_account_file)
+    if credentials_path is None:
+        raise RuntimeError("Provide --service-account-file or set GOOGLE_APPLICATION_CREDENTIALS")
+    if not credentials_path.exists():
+        raise RuntimeError(f"Service account key not found: {credentials_path}")
+    return _build_drive_client(credentials_path)
+
+
 def _download_request_to_path(request: Any, destination: Path) -> None:
     try:
         from googleapiclient.http import MediaIoBaseDownload
@@ -130,6 +154,63 @@ def _download_request_to_path(request: Any, destination: Path) -> None:
         _, done = downloader.next_chunk()
 
     destination.write_bytes(buffer.getvalue())
+
+
+def _extract_drive_file_id(raw_text: str) -> str | None:
+    patterns = [
+        r'"doc_id"\s*:\s*"([^"]+)"',
+        r'"resource_id"\s*:\s*"[^:]+:([^"]+)"',
+        r'https://docs\.google\.com/document/d/([a-zA-Z0-9_-]+)',
+        r'https://docs\.google\.com/spreadsheets/d/([a-zA-Z0-9_-]+)',
+        r'https://docs\.google\.com/presentation/d/([a-zA-Z0-9_-]+)',
+    ]
+    for pattern in patterns:
+        match = re.search(pattern, raw_text)
+        if match:
+            return match.group(1)
+    return None
+
+
+def parse_google_shortcut(shortcut_path: Path) -> dict[str, str]:
+    suffix = shortcut_path.suffix.lower()
+    if suffix not in GOOGLE_SHORTCUT_FORMATS:
+        raise RuntimeError(f"Unsupported Google shortcut type: {suffix}")
+
+    raw_text = shortcut_path.read_text(encoding="utf-8", errors="replace")
+    file_id = _extract_drive_file_id(raw_text)
+    if not file_id:
+        raise RuntimeError(f"Could not extract Drive file ID from {shortcut_path.name}")
+
+    mime_type, export_format = GOOGLE_SHORTCUT_FORMATS[suffix]
+    return {
+        "id": file_id,
+        "name": shortcut_path.stem,
+        "mimeType": mime_type,
+        "export_format": export_format,
+    }
+
+
+def export_google_shortcut(
+    shortcut_path: Path,
+    output_dir: Path,
+    service_account_file: Path | None = None,
+) -> Path:
+    shortcut = parse_google_shortcut(shortcut_path)
+    drive = build_drive_client(service_account_file)
+    outputs = _export_google_native(
+        drive,
+        {
+            "id": shortcut["id"],
+            "name": shortcut["name"],
+            "mimeType": shortcut["mimeType"],
+        },
+        rel_path=Path(),
+        output_dir=output_dir,
+        target_formats=[shortcut["export_format"]],
+    )
+    if not outputs:
+        raise RuntimeError(f"No export output produced for {shortcut_path.name}")
+    return Path(outputs[0])
 
 
 def _list_children(drive: Any, folder_id: str) -> list[dict[str, str]]:
@@ -364,7 +445,7 @@ def run_export(
     formats: list[str],
     include_non_google: bool,
 ) -> tuple[Path, dict[str, int], list[ExportResult]]:
-    drive = _build_drive_client(service_account_file)
+    drive = build_drive_client(service_account_file)
     results = crawl_and_export(
         drive,
         folder_id,
@@ -387,13 +468,8 @@ def run_export(
 def main() -> None:
     args = parse_args()
 
-    credentials_path = args.service_account_file
+    credentials_path = resolve_credentials_path(args.service_account_file)
     if credentials_path is None:
-        env_path = os.getenv("GOOGLE_APPLICATION_CREDENTIALS", "").strip()
-        if env_path:
-            credentials_path = Path(env_path)
-
-    if not credentials_path:
         raise SystemExit("Provide --service-account-file or set GOOGLE_APPLICATION_CREDENTIALS")
     if not credentials_path.exists():
         raise SystemExit(f"Service account key not found: {credentials_path}")

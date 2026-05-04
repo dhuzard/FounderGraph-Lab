@@ -13,7 +13,7 @@ from app.services.validation_store import ValidationStore, load_json
 
 
 st.set_page_config(page_title="Graph Explorer", layout="wide")
-st.title("FAIR-VCG-mentor Explorer")
+st.title("FounderGraph-Lab Explorer")
 st.caption("Explore validated knowledge already written to Neo4j.")
 
 
