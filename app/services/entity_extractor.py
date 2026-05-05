@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import uuid
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any, Iterable
 
@@ -320,6 +321,7 @@ class EntityExtractor:
         self,
         text: str,
         metadata: dict[str, Any] | None = None,
+        progress_callback: Callable[[str], None] | None = None,
     ) -> ExtractionResult:
         """Run extraction, normalize IDs, validate against ontology, then stage.
 
@@ -330,6 +332,8 @@ class EntityExtractor:
         only valid candidates are staged unless the validator itself fails.
         """
         meta = metadata or {}
+        _notify = progress_callback or (lambda _: None)
+        _notify("Classifying document…")
         classification = self.classify_document(text, meta)
         doc_id = str(
             meta.get("source_document_id")
@@ -350,6 +354,8 @@ class EntityExtractor:
                 "chunk_index": chunk_index,
                 "chunk_count": len(chunks),
             }
+            chunk_label = f" (chunk {chunk_index}/{len(chunks)})" if len(chunks) > 1 else ""
+            _notify(f"Extracting entities{chunk_label}…")
             entities = self.extract_entities(chunk_text, chunk_meta)
 
             # Build temporary_id → stable UUIDv5 mapping so relations can be updated.
@@ -365,6 +371,7 @@ class EntityExtractor:
                     entity.properties.setdefault("extraction_chunks", [])
                     entity.properties["extraction_chunks"].append(chunk_index)
 
+            _notify(f"Extracting relations{chunk_label}…")
             relations = self.extract_relations(chunk_text, entities, chunk_meta)
             for relation in relations:
                 if relation.source_entity_id in tmp_to_stable:

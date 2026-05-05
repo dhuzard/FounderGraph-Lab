@@ -304,10 +304,36 @@ st.caption("Review extracted candidates before they are eligible for graph write
 knowledge_dir = Path(st.sidebar.text_input("Knowledge JSON directory", str(DEFAULT_KNOWLEDGE_DIR)))
 store = ValidationStore(knowledge_dir)
 
+
+def _file_mtime(path: Path) -> float:
+    try:
+        return path.stat().st_mtime
+    except OSError:
+        return 0.0
+
+
+def _store_cache_key(s: ValidationStore) -> tuple[float, ...]:
+    return (
+        _file_mtime(s.entity_candidate_path),
+        _file_mtime(s.validated_entities_path),
+        _file_mtime(s.relation_candidate_path),
+        _file_mtime(s.validated_relations_path),
+    )
+
+
+def _load_cached(s: ValidationStore) -> tuple[list[dict], list[dict]]:
+    key = _store_cache_key(s)
+    if st.session_state.get("_store_cache_key") != key:
+        st.session_state["_store_cache_key"] = key
+        st.session_state["_cached_entities"] = s.load_entities()
+        st.session_state["_cached_relations"] = s.load_relations()
+    return st.session_state["_cached_entities"], st.session_state["_cached_relations"]
+
 with st.sidebar:
     st.header("Demo data")
     if st.button("Seed demo candidates"):
         entity_path, relation_path = seed_demo_candidates(overwrite=True)
+        st.session_state.pop("_store_cache_key", None)
         st.success(f"Seeded {entity_path.name} and {relation_path.name}")
         st.rerun()
 
@@ -325,8 +351,7 @@ with st.sidebar:
         help="Leave empty to show all grades.",
     )
 
-all_entities = store.load_entities()
-all_relations = store.load_relations()
+all_entities, all_relations = _load_cached(store)
 
 entity_types = sorted({e.get("type", "") for e in all_entities if e.get("type")})
 doc_ids = sorted({e.get("source_document_id") or e.get("source_file") or "" for e in all_entities} - {""})
