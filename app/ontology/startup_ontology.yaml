@@ -1,9 +1,7 @@
-version: "1.0.0"
 domain: Biotech / Life Sciences
 goals:
 - assumption_validation
 - investor_readiness
-- grant_applications
 - customer_discovery
 - milestone_tracking
 - risk_mapping

@@ -8,7 +8,7 @@ import urllib.error
 import urllib.request
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 from app.services.qdrant_service import DOCUMENT_COLLECTION, QdrantService
 
@@ -144,11 +144,29 @@ def _fallback_markdown(title: str, prompt: str, graph: dict[str, Any], snippets:
 """
 
 
-def run_agent_workflow(slug: str, title: str, prompt_file: str, query: str, cypher: str) -> dict[str, Any]:
+def run_agent_workflow(
+    slug: str,
+    title: str,
+    prompt_file: str,
+    query: str,
+    cypher: str,
+    on_progress: Callable[[dict[str, Any]], None] | None = None,
+) -> dict[str, Any]:
+    if on_progress:
+        on_progress({"phase": "prompt", "message": "Loading prompt and ontology context"})
     prompt = _read_prompt(prompt_file)
-    graph = _neo4j_read(cypher)
-    snippets = QdrantService().semantic_search(query, collection=DOCUMENT_COLLECTION, limit=6)
     ontology = _ontology_context()
+
+    if on_progress:
+        on_progress({"phase": "graph", "message": "Reading graph context from Neo4j"})
+    graph = _neo4j_read(cypher)
+
+    if on_progress:
+        on_progress({"phase": "vectors", "message": "Searching Qdrant evidence snippets"})
+    snippets = QdrantService().semantic_search(query, collection=DOCUMENT_COLLECTION, limit=6)
+
+    if on_progress:
+        on_progress({"phase": "synthesis", "message": "Generating Markdown audit with Ollama"})
     ontology_section = f"\nOntology schema (use these entity classes and relation types when naming findings):\n{ontology}\n" if ontology else ""
     synthesis_prompt = f"""{prompt}
 {ontology_section}
@@ -164,11 +182,16 @@ Return a concise Markdown audit with findings, evidence, risks, and next actions
 """
     generated = _ollama_generate(synthesis_prompt)
     body = generated["text"] if generated.get("available") and generated.get("text") else _fallback_markdown(title, prompt, graph, snippets)
+
+    if on_progress:
+        on_progress({"phase": "save", "message": "Saving audit Markdown"})
     path = _save_audit(slug, title, body)
+    if on_progress:
+        on_progress({"phase": "done", "message": f"Saved audit to {path.name}"})
     return {"path": str(path), "graph": graph, "snippets": snippets, "ollama": generated}
 
 
-def pitch_audit() -> dict[str, Any]:
+def pitch_audit(on_progress: Callable[[dict[str, Any]], None] | None = None) -> dict[str, Any]:
     return run_agent_workflow(
         slug="pitch-audit",
         title="Pitch Audit",
@@ -179,10 +202,11 @@ def pitch_audit() -> dict[str, Any]:
             "WHERE n:Startup OR n:Founder OR n:Market OR n:Assumption OR n:Evidence "
             "RETURN labels(n) AS labels, properties(n) AS properties LIMIT 50"
         ),
+        on_progress=on_progress,
     )
 
 
-def unsupported_assumption_audit() -> dict[str, Any]:
+def unsupported_assumption_audit(on_progress: Callable[[dict[str, Any]], None] | None = None) -> dict[str, Any]:
     return run_agent_workflow(
         slug="unsupported-assumptions",
         title="Unsupported Assumption Audit",
@@ -195,10 +219,11 @@ def unsupported_assumption_audit() -> dict[str, Any]:
             "a.evidence_grade AS evidence_grade, a.reviewer_confidence AS reviewer_confidence, "
             "a.source_file AS source_file, a.source_snippet AS source_snippet"
         ),
+        on_progress=on_progress,
     )
 
 
-def assumption_audit() -> dict[str, Any]:
+def assumption_audit(on_progress: Callable[[dict[str, Any]], None] | None = None) -> dict[str, Any]:
     return run_agent_workflow(
         slug="assumption-audit",
         title="Assumption Audit",
@@ -218,10 +243,11 @@ def assumption_audit() -> dict[str, Any]:
             "collect(DISTINCT exp.label) AS experiments, "
             "collect(DISTINCT r.label) AS related_risks LIMIT 75"
         ),
+        on_progress=on_progress,
     )
 
 
-def customer_discovery() -> dict[str, Any]:
+def customer_discovery(on_progress: Callable[[dict[str, Any]], None] | None = None) -> dict[str, Any]:
     return run_agent_workflow(
         slug="customer-discovery",
         title="Customer Discovery Questions",
@@ -232,10 +258,11 @@ def customer_discovery() -> dict[str, Any]:
             "OPTIONAL MATCH (f:Entity:ProductFeature)-[:ADDRESSES]->(p) "
             "RETURN s.label AS segment, p.label AS problem, collect(f.label) AS linked_features"
         ),
+        on_progress=on_progress,
     )
 
 
-def due_diligence_checklist() -> dict[str, Any]:
+def due_diligence_checklist(on_progress: Callable[[dict[str, Any]], None] | None = None) -> dict[str, Any]:
     return run_agent_workflow(
         slug="due-diligence-checklist",
         title="Due Diligence Checklist",
@@ -258,10 +285,11 @@ def due_diligence_checklist() -> dict[str, Any]:
             "collect(DISTINCT rc.label) AS regulatory_constraints, "
             "collect(DISTINCT fh.label) AS financial_hypotheses LIMIT 60"
         ),
+        on_progress=on_progress,
     )
 
 
-def next_experiment_suggestions() -> dict[str, Any]:
+def next_experiment_suggestions(on_progress: Callable[[dict[str, Any]], None] | None = None) -> dict[str, Any]:
     return run_agent_workflow(
         slug="next-experiments",
         title="Next Experiment Suggestions",
@@ -280,10 +308,11 @@ def next_experiment_suggestions() -> dict[str, Any]:
             "collect(DISTINCT ev.label) AS generated_evidence, "
             "collect(DISTINCT e.label) AS existing_evidence LIMIT 75"
         ),
+        on_progress=on_progress,
     )
 
 
-def grant_strategy() -> dict[str, Any]:
+def grant_strategy(on_progress: Callable[[dict[str, Any]], None] | None = None) -> dict[str, Any]:
     return run_agent_workflow(
         slug="grant-strategy",
         title="Grant Strategy",
@@ -294,10 +323,11 @@ def grant_strategy() -> dict[str, Any]:
             "WHERE n:Startup OR n:Grant OR n:Milestone OR n:Impact OR n:Market "
             "RETURN labels(n) AS labels, properties(n) AS properties LIMIT 50"
         ),
+        on_progress=on_progress,
     )
 
 
-def decision_intelligence() -> dict[str, Any]:
+def decision_intelligence(on_progress: Callable[[dict[str, Any]], None] | None = None) -> dict[str, Any]:
     return run_agent_workflow(
         slug="decision-intelligence",
         title="Decision Intelligence Report",
@@ -319,6 +349,7 @@ def decision_intelligence() -> dict[str, Any]:
             "collect(DISTINCT {risk: r.label, milestone: m.label, probability: r.probability, impact: r.impact, mitigation: r.mitigation}) AS risk_exposure, "
             "collect(DISTINCT {decision: d.label, basis: de.label}) AS prior_decisions LIMIT 60"
         ),
+        on_progress=on_progress,
     )
 
 

@@ -166,14 +166,249 @@ _DEMO_RELATION_TEMPLATES: list[dict[str, Any]] = [
 ]
 
 
-def seed_demo_candidates(overwrite: bool = False) -> tuple[Path, Path]:
+_TRIALMESH_ENTITY_TEMPLATES: list[dict[str, Any]] = [
+    {
+        "id": "TM-STARTUP-001",
+        "type": "Startup",
+        "label": "TrialMesh",
+        "description": "A local-first evidence orchestration platform for clinical trial startup teams.",
+        "source_document_id": "trialmesh-company-profile",
+        "source_file": "sample_data/trialmesh/00_overview/company_profile.md",
+        "source_snippet": "TrialMesh sells a local-first evidence orchestration platform for clinical trial startup teams.",
+        "confidence": "high",
+        "validation_status": "pending",
+        "tags": ["trialmesh", "startup"],
+    },
+    {
+        "id": "TM-CUST-SPONSOR-001",
+        "type": "CustomerSegment",
+        "label": "Clinical trial sponsors",
+        "description": "Sponsor teams coordinating trial startup evidence, vendors, and regulatory readiness.",
+        "source_document_id": "trialmesh-customer-segments",
+        "source_file": "sample_data/trialmesh/01_market/customer_segments_and_problem.md",
+        "source_snippet": "Sponsors and CROs need better coordination across trial startup packets, vendors, and evidence.",
+        "confidence": "high",
+        "validation_status": "pending",
+        "tags": ["customer", "sponsor"],
+    },
+    {
+        "id": "TM-CUST-CRO-001",
+        "type": "CustomerSegment",
+        "label": "CRO startup operations teams",
+        "description": "CRO teams managing site startup workflows, document handoffs, and operational evidence.",
+        "source_document_id": "trialmesh-cro-interview",
+        "source_file": "sample_data/trialmesh/01_market/interviews/cro_program_director_interview.txt",
+        "source_snippet": "CRO program directors described startup delays caused by handoffs and version confusion.",
+        "confidence": "high",
+        "validation_status": "pending",
+        "tags": ["customer", "cro"],
+    },
+    {
+        "id": "TM-PROB-STARTUP-DELAY-001",
+        "type": "Problem",
+        "label": "Site startup delays",
+        "description": "Clinical trial startup teams lose time reconciling packets, versions, vendor handoffs, and approvals.",
+        "source_document_id": "trialmesh-company-profile",
+        "source_file": "sample_data/trialmesh/00_overview/company_profile.md",
+        "source_snippet": "The product helps sponsors and CROs reduce trial startup delays.",
+        "confidence": "high",
+        "validation_status": "pending",
+        "tags": ["problem", "startup"],
+    },
+    {
+        "id": "TM-PROB-VERSION-CONFUSION-001",
+        "type": "Problem",
+        "label": "Document version confusion",
+        "description": "Teams struggle to know which protocol packet, amendment, or evidence artifact is authoritative.",
+        "source_document_id": "trialmesh-site-ops-interview",
+        "source_file": "sample_data/trialmesh/01_market/interviews/site_ops_director_interview.txt",
+        "source_snippet": "Customer interviews show urgency around protocol amendments, document version confusion, and vendor handoffs.",
+        "confidence": "high",
+        "validation_status": "pending",
+        "tags": ["problem", "documents"],
+    },
+    {
+        "id": "TM-FEAT-EVIDENCE-GRAPH-001",
+        "type": "ProductFeature",
+        "label": "Validated evidence graph",
+        "description": "A knowledge graph that links claims, documents, risks, requirements, and operating evidence.",
+        "source_document_id": "trialmesh-product-requirements",
+        "source_file": "sample_data/trialmesh/02_product/product_requirements.md",
+        "source_snippet": "Operational evidence is turned into a validated knowledge graph.",
+        "confidence": "high",
+        "validation_status": "pending",
+        "tags": ["product", "graph"],
+    },
+    {
+        "id": "TM-ASSUMP-CYCLE-TIME-001",
+        "type": "Assumption",
+        "label": "TrialMesh can reduce site startup cycle time by 21 percent",
+        "description": "TrialMesh claims its workflow can reduce site startup cycle time by 21 percent.",
+        "source_document_id": "trialmesh-pilot-results",
+        "source_file": "sample_data/trialmesh/03_evidence/pilot_results.md",
+        "source_snippet": "The startup claims it can reduce site startup cycle time by 21 percent.",
+        "confidence": "medium",
+        "validation_status": "pending",
+        "tags": ["assumption", "kpi"],
+    },
+    {
+        "id": "TM-EVID-PILOT-001",
+        "type": "Evidence",
+        "label": "Pilot results report startup cycle-time reduction",
+        "description": "Pilot evidence reports a reduction in site startup cycle time.",
+        "source_document_id": "trialmesh-pilot-results",
+        "source_file": "sample_data/trialmesh/03_evidence/pilot_results.md",
+        "source_snippet": "Pilot results are used as evidence for the 21 percent cycle-time reduction claim.",
+        "confidence": "medium",
+        "validation_status": "pending",
+        "tags": ["evidence", "pilot"],
+    },
+    {
+        "id": "TM-RISK-COMPLIANCE-001",
+        "type": "Risk",
+        "label": "HIPAA and 21 CFR Part 11 compliance risk",
+        "description": "Clinical trial workflows create compliance risk around HIPAA, auditability, signatures, and regulated records.",
+        "source_document_id": "trialmesh-compliance-gap",
+        "source_file": "sample_data/trialmesh/05_regulatory/compliance_gap_assessment.md",
+        "source_snippet": "Regulatory notes surface HIPAA, 21 CFR Part 11, and ICH E6 concerns.",
+        "confidence": "high",
+        "validation_status": "pending",
+        "tags": ["risk", "regulatory"],
+    },
+    {
+        "id": "TM-DEP-M365-001",
+        "type": "TechnicalDependency",
+        "label": "Microsoft 365 integration",
+        "description": "TrialMesh depends on Microsoft 365 integration for customer document and workflow environments.",
+        "source_document_id": "trialmesh-product-requirements",
+        "source_file": "sample_data/trialmesh/02_product/product_requirements.md",
+        "source_snippet": "Product docs reveal dependencies on Microsoft 365, SSO, audit logs, and redaction workflows.",
+        "confidence": "high",
+        "validation_status": "pending",
+        "tags": ["dependency", "integration"],
+    },
+    {
+        "id": "TM-MILESTONE-PILOTS-001",
+        "type": "Milestone",
+        "label": "Secure three lighthouse pilots",
+        "description": "TrialMesh depends on landing three lighthouse pilots before an enterprise conversion.",
+        "source_document_id": "trialmesh-financial-model",
+        "source_file": "sample_data/trialmesh/04_finance/financial_model.csv",
+        "source_snippet": "Finance assumptions reveal dependency on 3 lighthouse pilots and one enterprise conversion.",
+        "confidence": "medium",
+        "validation_status": "pending",
+        "tags": ["milestone", "finance"],
+    },
+    {
+        "id": "TM-INVESTOR-PIPELINE-001",
+        "type": "Investor",
+        "label": "Healthcare workflow investors",
+        "description": "Investors in the TrialMesh pipeline focused on healthcare workflow, evidence, and regulated SaaS.",
+        "source_document_id": "trialmesh-investor-pipeline",
+        "source_file": "sample_data/trialmesh/06_partnerships/investor_pipeline.csv",
+        "source_snippet": "Investor pipeline includes funds evaluating healthcare workflow and evidence orchestration themes.",
+        "confidence": "medium",
+        "validation_status": "pending",
+        "tags": ["investor"],
+    },
+]
+
+_TRIALMESH_RELATION_TEMPLATES: list[dict[str, Any]] = [
+    {
+        "id": "TM-REL-STARTUP-SPONSOR-001",
+        "subject_id": "TM-STARTUP-001",
+        "subject_type": "Startup",
+        "predicate": "TARGETS",
+        "object_id": "TM-CUST-SPONSOR-001",
+        "object_type": "CustomerSegment",
+        "source_document_id": "trialmesh-customer-segments",
+        "source_file": "sample_data/trialmesh/01_market/customer_segments_and_problem.md",
+        "source_snippet": "Sponsors and CROs need better coordination across trial startup packets, vendors, and evidence.",
+        "confidence": "high",
+        "validation_status": "pending",
+    },
+    {
+        "id": "TM-REL-CRO-PROBLEM-001",
+        "subject_id": "TM-CUST-CRO-001",
+        "subject_type": "CustomerSegment",
+        "predicate": "HAS_PROBLEM",
+        "object_id": "TM-PROB-VERSION-CONFUSION-001",
+        "object_type": "Problem",
+        "source_document_id": "trialmesh-cro-interview",
+        "source_file": "sample_data/trialmesh/01_market/interviews/cro_program_director_interview.txt",
+        "source_snippet": "CRO program directors described startup delays caused by handoffs and version confusion.",
+        "confidence": "high",
+        "validation_status": "pending",
+    },
+    {
+        "id": "TM-REL-FEATURE-PROBLEM-001",
+        "subject_id": "TM-FEAT-EVIDENCE-GRAPH-001",
+        "subject_type": "ProductFeature",
+        "predicate": "ADDRESSES",
+        "object_id": "TM-PROB-STARTUP-DELAY-001",
+        "object_type": "Problem",
+        "source_document_id": "trialmesh-product-requirements",
+        "source_file": "sample_data/trialmesh/02_product/product_requirements.md",
+        "source_snippet": "Operational evidence is turned into a validated knowledge graph to reduce startup delays.",
+        "confidence": "medium",
+        "validation_status": "pending",
+    },
+    {
+        "id": "TM-REL-ASSUMP-EVIDENCE-001",
+        "subject_id": "TM-ASSUMP-CYCLE-TIME-001",
+        "subject_type": "Assumption",
+        "predicate": "SUPPORTED_BY",
+        "object_id": "TM-EVID-PILOT-001",
+        "object_type": "Evidence",
+        "source_document_id": "trialmesh-pilot-results",
+        "source_file": "sample_data/trialmesh/03_evidence/pilot_results.md",
+        "source_snippet": "Pilot results are used as evidence for the 21 percent cycle-time reduction claim.",
+        "confidence": "medium",
+        "validation_status": "pending",
+    },
+    {
+        "id": "TM-REL-RISK-MILESTONE-001",
+        "subject_id": "TM-RISK-COMPLIANCE-001",
+        "subject_type": "Risk",
+        "predicate": "THREATENS",
+        "object_id": "TM-MILESTONE-PILOTS-001",
+        "object_type": "Milestone",
+        "source_document_id": "trialmesh-compliance-gap",
+        "source_file": "sample_data/trialmesh/05_regulatory/compliance_gap_assessment.md",
+        "source_snippet": "Regulatory concerns could slow pilots and enterprise conversion.",
+        "confidence": "medium",
+        "validation_status": "pending",
+    },
+]
+
+
+def _write_candidates(
+    entities: list[dict[str, Any]],
+    relations: list[dict[str, Any]],
+    *,
+    overwrite: bool,
+) -> tuple[Path, Path]:
     CANDIDATE_ENTITIES_JSON.parent.mkdir(parents=True, exist_ok=True)
     CANDIDATE_RELATIONS_JSON.parent.mkdir(parents=True, exist_ok=True)
     now = _now()
     if overwrite or not CANDIDATE_ENTITIES_JSON.exists():
-        entities = [{**e, "created_at": now, "updated_at": now} for e in _DEMO_ENTITY_TEMPLATES]
-        CANDIDATE_ENTITIES_JSON.write_text(json.dumps(entities, indent=2) + "\n", encoding="utf-8")
+        entities_with_timestamps = [{**e, "created_at": now, "updated_at": now} for e in entities]
+        CANDIDATE_ENTITIES_JSON.write_text(
+            json.dumps(entities_with_timestamps, indent=2) + "\n",
+            encoding="utf-8",
+        )
     if overwrite or not CANDIDATE_RELATIONS_JSON.exists():
-        relations = [{**r, "created_at": now, "updated_at": now} for r in _DEMO_RELATION_TEMPLATES]
-        CANDIDATE_RELATIONS_JSON.write_text(json.dumps(relations, indent=2) + "\n", encoding="utf-8")
+        relations_with_timestamps = [{**r, "created_at": now, "updated_at": now} for r in relations]
+        CANDIDATE_RELATIONS_JSON.write_text(
+            json.dumps(relations_with_timestamps, indent=2) + "\n",
+            encoding="utf-8",
+        )
     return CANDIDATE_ENTITIES_JSON, CANDIDATE_RELATIONS_JSON
+
+
+def seed_demo_candidates(overwrite: bool = False) -> tuple[Path, Path]:
+    return _write_candidates(_DEMO_ENTITY_TEMPLATES, _DEMO_RELATION_TEMPLATES, overwrite=overwrite)
+
+
+def seed_trialmesh_candidates(overwrite: bool = False) -> tuple[Path, Path]:
+    return _write_candidates(_TRIALMESH_ENTITY_TEMPLATES, _TRIALMESH_RELATION_TEMPLATES, overwrite=overwrite)

@@ -105,8 +105,30 @@ def main() -> None:
 
     with col_right:
         if st.button("Index vault in Qdrant"):
-            with st.spinner("Indexing Markdown vault..."):
-                status = index_startup_knowledge("/app")
+            progress = st.progress(0, text="Preparing Qdrant indexing...")
+            current_file = st.empty()
+
+            def _show_progress(event: dict) -> None:
+                total = max(int(event.get("total") or 0), 1)
+                index = int(event.get("index") or 0)
+                phase = str(event.get("phase") or "documents")
+                path = str(event.get("path") or "")
+                progress.progress(
+                    min(index / total, 1.0),
+                    text=f"Indexing {phase}: {index}/{total}",
+                )
+                result = event.get("result") or {}
+                indexed = result.get("indexed")
+                if indexed is None:
+                    current_file.info(f"Embedding `{path}`")
+                else:
+                    current_file.info(f"Indexed `{path}` ({indexed} chunk(s))")
+
+            with st.status("Indexing Markdown vault in Qdrant...", expanded=True) as indexing_status:
+                st.write("Embedding documents with Ollama and upserting chunks to Qdrant.")
+                status = index_startup_knowledge("/app", on_progress=_show_progress)
+                indexing_status.update(label="Qdrant indexing finished", state="complete")
+
             document_results = status.get("documents", [])
             indexed = sum(item.get("indexed", 0) for item in document_results)
             unavailable = [item for item in document_results if not item.get("available", True)]
@@ -115,6 +137,7 @@ def main() -> None:
                 st.caption(unavailable[0].get("error", "Unknown vector indexing error"))
             else:
                 st.success(f"Indexed {indexed} document chunks.")
+            progress.empty()
 
     # Workflow description hints
     _WORKFLOW_HINTS = {
@@ -136,8 +159,32 @@ def main() -> None:
         run_clicked = st.button("Run workflow", type="primary", use_container_width=True)
 
     if run_clicked:
-        with st.spinner("Running read-only agent workflow..."):
-            result = WORKFLOWS[workflow_name]()
+        phase_steps = {
+            "prompt": 0.10,
+            "graph": 0.30,
+            "vectors": 0.50,
+            "synthesis": 0.78,
+            "save": 0.92,
+            "done": 1.0,
+        }
+        workflow_progress = st.progress(0, text="Preparing workflow...")
+        workflow_detail = st.empty()
+
+        def _show_workflow_progress(event: dict) -> None:
+            phase = str(event.get("phase") or "")
+            message = str(event.get("message") or "Running workflow")
+            workflow_progress.progress(
+                phase_steps.get(phase, 0.05),
+                text=message,
+            )
+            workflow_detail.info(message)
+
+        with st.status(f"Running {workflow_name}...", expanded=True) as workflow_status:
+            st.write("Collecting graph context, searching Qdrant, then generating the audit.")
+            result = WORKFLOWS[workflow_name](on_progress=_show_workflow_progress)
+            workflow_status.update(label=f"{workflow_name} complete", state="complete")
+        workflow_progress.empty()
+        workflow_detail.empty()
 
         # --- Service availability badges ---
         badge_col1, badge_col2, badge_col3 = st.columns(3)

@@ -16,7 +16,7 @@ import urllib.error
 import urllib.request
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any, Callable, Iterable
 
 
 DOCUMENT_COLLECTION = "startup_documents"
@@ -241,6 +241,7 @@ def _read_text_files(paths: Iterable[Path]) -> Iterable[tuple[Path, str]]:
 def index_startup_knowledge(
     root: str | Path = ".",
     service: QdrantService | None = None,
+    on_progress: Callable[[dict[str, Any]], None] | None = None,
 ) -> dict[str, Any]:
     """Index sample/vault documents and lightweight entity files into Qdrant."""
 
@@ -249,22 +250,48 @@ def index_startup_knowledge(
     status = {"collections": service.ensure_collections(), "documents": [], "entities": []}
 
     document_paths = list((base / "sample_data").glob("**/*")) + list((base / "vault" / "documents").glob("**/*"))
-    for path, text in _read_text_files(document_paths):
+    readable_documents = list(_read_text_files(document_paths))
+    total_documents = len(readable_documents)
+    for index, (path, text) in enumerate(readable_documents, start=1):
+        rel_path = str(path.relative_to(base))
+        if on_progress:
+            on_progress({"phase": "documents", "index": index, "total": total_documents, "path": rel_path})
         result = service.index_document(
-            document_id=str(path.relative_to(base)),
+            document_id=rel_path,
             text=text,
-            metadata={"source_path": str(path.relative_to(base)), "kind": "document"},
+            metadata={"source_path": rel_path, "kind": "document"},
         )
-        status["documents"].append({"path": str(path.relative_to(base)), **result})
+        status["documents"].append({"path": rel_path, **result})
+        if on_progress:
+            on_progress({
+                "phase": "documents",
+                "index": index,
+                "total": total_documents,
+                "path": rel_path,
+                "result": result,
+            })
 
     entity_paths = list((base / "vault" / "entities").glob("**/*"))
-    for path, text in _read_text_files(entity_paths):
+    readable_entities = list(_read_text_files(entity_paths))
+    total_entities = len(readable_entities)
+    for index, (path, text) in enumerate(readable_entities, start=1):
+        rel_path = str(path.relative_to(base))
+        if on_progress:
+            on_progress({"phase": "entities", "index": index, "total": total_entities, "path": rel_path})
         result = service.index_entity(
-            entity_id=str(path.relative_to(base)),
+            entity_id=rel_path,
             text=text,
-            metadata={"source_path": str(path.relative_to(base)), "kind": "entity"},
+            metadata={"source_path": rel_path, "kind": "entity"},
         )
-        status["entities"].append({"path": str(path.relative_to(base)), **result})
+        status["entities"].append({"path": rel_path, **result})
+        if on_progress:
+            on_progress({
+                "phase": "entities",
+                "index": index,
+                "total": total_entities,
+                "path": rel_path,
+                "result": result,
+            })
 
     return status
 

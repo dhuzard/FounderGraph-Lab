@@ -13,7 +13,7 @@ from app.services.validation_store import (
     VALIDATION_STATUSES,
     ValidationStore,
 )
-from app.services.demo_seed import seed_demo_candidates
+from app.services.demo_seed import seed_demo_candidates, seed_trialmesh_candidates
 
 
 st.set_page_config(page_title="Validate Knowledge", layout="wide")
@@ -331,7 +331,13 @@ def _load_cached(s: ValidationStore) -> tuple[list[dict], list[dict]]:
 
 with st.sidebar:
     st.header("Demo data")
-    if st.button("Seed demo candidates"):
+    if st.button("Seed TrialMesh candidates"):
+        entity_path, relation_path = seed_trialmesh_candidates(overwrite=True)
+        st.session_state.pop("_store_cache_key", None)
+        st.success(f"Seeded {entity_path.name} and {relation_path.name}")
+        st.rerun()
+
+    if st.button("Seed generic demo candidates"):
         entity_path, relation_path = seed_demo_candidates(overwrite=True)
         st.session_state.pop("_store_cache_key", None)
         st.success(f"Seeded {entity_path.name} and {relation_path.name}")

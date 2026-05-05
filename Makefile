@@ -1,6 +1,10 @@
-.PHONY: up down logs test lint format pull-models init reset-demo
+.PHONY: up down logs test lint format pull-models init init-trialmesh reset-demo
 
-PYTHON ?= python
+ifeq ($(OS),Windows_NT)
+PYTHON ?= py -3
+else
+PYTHON ?= uv run python
+endif
 
 up:
 	docker compose up -d --build
@@ -26,6 +30,9 @@ pull-models:
 
 init:
 	$(PYTHON) scripts/init_ontology.py
+
+init-trialmesh:
+	$(PYTHON) scripts/init_ontology.py --demo trialmesh
 
 reset-demo:
 	$(PYTHON) scripts/reset_demo_state.py

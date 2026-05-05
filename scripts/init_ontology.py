@@ -26,6 +26,7 @@ import textwrap
 import webbrowser
 import urllib.error
 import urllib.request
+from dataclasses import dataclass
 from urllib.parse import quote
 from pathlib import Path
 
@@ -40,8 +41,47 @@ from app.services.ontology_service import (  # noqa: E402
     save_ontology,
 )
 from app.services.file_store import FileStoreError, ingest_document  # noqa: E402
+from app.services.demo_seed import seed_trialmesh_candidates  # noqa: E402
 from app.services.init_bridge import save_init_bridge  # noqa: E402
 from scripts.reset_demo_state import reset_demo_state  # noqa: E402
+
+
+@dataclass(frozen=True)
+class DemoPreset:
+    name: str
+    description: str
+    domain: str
+    goals: list[str]
+    docs: Path
+    reset_state: bool = True
+    ingest: bool = True
+    seed_candidates: bool = False
+    review: bool = False
+    llm_suggestions: bool = False
+
+
+DEMO_PRESETS = {
+    "trialmesh": DemoPreset(
+        name="TrialMesh",
+        description=(
+            "TrialMesh is a local-first evidence orchestration platform for "
+            "clinical trial startup teams, helping sponsors and CROs reduce "
+            "site startup delays by turning operational, regulatory, vendor, "
+            "and customer evidence into a validated knowledge graph."
+        ),
+        domain="Biotech / Life Sciences",
+        goals=[
+            "assumption_validation",
+            "investor_readiness",
+            "customer_discovery",
+            "milestone_tracking",
+            "risk_mapping",
+            "knowledge_management",
+        ],
+        docs=_PROJECT_ROOT / "sample_data" / "trialmesh",
+        seed_candidates=True,
+    ),
+}
 
 # ---------------------------------------------------------------------------
 # Terminal formatting helpers
@@ -527,6 +567,12 @@ def ingest_files_to_vault(files: list[Path]) -> tuple[int, int]:
 
 def main(args: argparse.Namespace) -> None:
     banner()
+    preset = DEMO_PRESETS.get(args.demo) if args.demo else None
+    if args.demo and preset is None:
+        err(f"Unknown demo preset: {args.demo}")
+        warn(f"Available presets: {', '.join(sorted(DEMO_PRESETS))}")
+        sys.exit(1)
+    auto_demo = preset is not None and not args.interactive
 
     # Load or reset existing ontology
     if args.reset:
@@ -537,7 +583,15 @@ def main(args: argparse.Namespace) -> None:
 
     # ── Phase 1: Context ───────────────────────────────────────────────────
     section("1 / 6  Startup Context")
-    startup_name, startup_description, domain, goals = gather_context(config)
+    if preset:
+        startup_name = preset.name
+        startup_description = preset.description
+        domain = preset.domain
+        goals = list(preset.goals)
+        ok(f"Using demo preset: {args.demo}")
+        ok(f"Startup: {startup_name}")
+    else:
+        startup_name, startup_description, domain, goals = gather_context(config)
     config.domain = domain
     config.goals = goals
     print()
@@ -546,22 +600,28 @@ def main(args: argparse.Namespace) -> None:
 
     # ── Phase 2: Document discovery ────────────────────────────────────────
     section("2 / 6  Document Discovery")
-    default_doc_path = str(args.docs or (_PROJECT_ROOT / "sample_data"))
-    doc_path_str = ask(
-        "Path to your startup documents",
-        default=default_doc_path,
-    )
-    doc_path = Path(doc_path_str).expanduser().resolve()
+    default_doc_path = args.docs or (preset.docs if preset else (_PROJECT_ROOT / "sample_data"))
+    if auto_demo:
+        doc_path = default_doc_path.expanduser().resolve()
+        ok(f"Using documents: {doc_path.relative_to(_PROJECT_ROOT)}")
+    else:
+        doc_path_str = ask(
+            "Path to your startup documents",
+            default=str(default_doc_path),
+        )
+        doc_path = Path(doc_path_str).expanduser().resolve()
 
     if not doc_path.exists():
         err(f"Path not found: {doc_path}")
         sys.exit(1)
 
     should_offer_clean_reset = "sample_data" in str(doc_path).replace("\\", "/")
-    if ask_yn(
-        "Start from a clean demo state before continuing?",
-        default=should_offer_clean_reset,
-    ):
+    should_reset_demo = (
+        preset.reset_state
+        if auto_demo and preset
+        else ask_yn("Start from a clean demo state before continuing?", default=should_offer_clean_reset)
+    )
+    if should_reset_demo:
         summary = reset_demo_state(clear_audits=False)
         ok(f"Demo state reset. Backup saved at {summary.backup_dir.relative_to(_PROJECT_ROOT)}")
         ok(f"Reset JSON files: {summary.reset_files}; cleared vault files: {summary.removed_vault_files}")
@@ -589,9 +649,10 @@ def main(args: argparse.Namespace) -> None:
             else:
                 warn(f"{f.name} → {char_count} chars (skipped — too short)")
 
-    should_ingest = ask_yn(
-        "Also ingest analyzed documents into vault now?",
-        default=False,
+    should_ingest = (
+        preset.ingest
+        if auto_demo and preset
+        else ask_yn("Also ingest analyzed documents into vault now?", default=False)
     )
 
     # ── Phase 4: LLM analysis ──────────────────────────────────────────────
@@ -600,7 +661,9 @@ def main(args: argparse.Namespace) -> None:
     model = os.getenv("LLM_MODEL", "llama3.1:8b")
     suggestions: list[dict] = []
 
-    if not texts:
+    if auto_demo and preset and not preset.llm_suggestions:
+        ok("Skipping LLM ontology suggestions for deterministic demo setup.")
+    elif not texts:
         warn("No documents to analyze — skipping LLM suggestions.")
     elif not _ollama_available(ollama_url):
         warn(f"Ollama not reachable at {ollama_url} — skipping LLM suggestions.")
@@ -621,10 +684,16 @@ def main(args: argparse.Namespace) -> None:
 
     # ── Phase 5: Entity type review ────────────────────────────────────────
     section("5 / 6  Entity Type Review")
-    config = review_entity_types(config, goals, suggestions)
+    if auto_demo and preset and not preset.review:
+        ok("Keeping current ontology entity types for demo setup.")
+    else:
+        config = review_entity_types(config, goals, suggestions)
 
     # ── Phase 5b: Relation review ──────────────────────────────────────────
-    config = review_relations(config)
+    if auto_demo and preset and not preset.review:
+        ok("Keeping current ontology relations for demo setup.")
+    else:
+        config = review_relations(config)
 
     # ── Phase 6: Save ──────────────────────────────────────────────────────
     section("6 / 6  Save & Initialize")
@@ -650,13 +719,19 @@ def main(args: argparse.Namespace) -> None:
         if fail_count:
             warn(f"{fail_count} file(s) failed to ingest.")
 
-    if ask_yn("\nInitialize Neo4j schema now? (requires `make up`)", default=False):
+    if auto_demo and preset and preset.seed_candidates:
+        section("Demo candidates")
+        entity_path, relation_path = seed_trialmesh_candidates(overwrite=True)
+        ok(f"Seeded TrialMesh validation candidates → {entity_path.relative_to(_PROJECT_ROOT)}")
+        ok(f"Seeded TrialMesh validation relations → {relation_path.relative_to(_PROJECT_ROOT)}")
+
+    if (not auto_demo) and ask_yn("\nInitialize Neo4j schema now? (requires `make up`)", default=False):
         init_neo4j_schema(config)
 
     app_url = os.getenv("FOUNDERGRAPH_APP_URL", "http://localhost:8501").rstrip("/")
     upload_url = f"{app_url}/?ingest_folder={quote(str(doc_path))}"
 
-    if ask_yn("\nOpen Upload prefilled with this folder path now?", default=False):
+    if (not auto_demo) and ask_yn("\nOpen Upload prefilled with this folder path now?", default=False):
         try:
             webbrowser.open(upload_url)
             ok("Opened browser to app URL with prefilled ingest path.")
@@ -664,7 +739,7 @@ def main(args: argparse.Namespace) -> None:
             warn(f"Could not open browser automatically: {exc}")
             warn(f"Open manually: {upload_url}")
 
-    if ask_yn("\nOpen Drive Sync now to export from Drive and ingest?", default=False):
+    if (not auto_demo) and ask_yn("\nOpen Drive Sync now to export from Drive and ingest?", default=False):
         try:
             webbrowser.open(f"{app_url}/")
             ok("Opened app. Use sidebar -> Drive Sync.")
@@ -689,4 +764,15 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="FounderGraph-Lab ontology initializer")
     parser.add_argument("--docs", type=Path, default=None, help="Path to startup document directory")
     parser.add_argument("--reset", action="store_true", help="Reset YAML to defaults before editing")
+    parser.add_argument(
+        "--demo",
+        choices=sorted(DEMO_PRESETS),
+        default=None,
+        help="Use a built-in demo preset to autofill startup context and document path",
+    )
+    parser.add_argument(
+        "--interactive",
+        action="store_true",
+        help="With --demo, still prompt for review and optional actions",
+    )
     main(parser.parse_args())
