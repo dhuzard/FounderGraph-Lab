@@ -214,3 +214,6 @@ relations:
 - subject: Entity
   predicate: SUPERSEDED_BY
   object: Entity
+- subject: Entity
+  predicate: SAME_AS
+  object: Entity

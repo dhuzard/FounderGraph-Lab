@@ -515,6 +515,14 @@ slots:
       predicate: SUPERSEDED_BY
       relation: true
 
+  same_as:
+    description: Entity SAME_AS Entity (reversible duplicate marker; Phase 6 entity resolution).
+    domain: Entity
+    range: Entity
+    annotations:
+      predicate: SAME_AS
+      relation: true
+
 # ---------------------------------------------------------------------------
 # Classes
 # ---------------------------------------------------------------------------

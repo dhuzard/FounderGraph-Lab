@@ -57,6 +57,7 @@ DEFAULT_ALLOWED_RELATIONSHIPS = {
     "SOURCE_OF",
     "DEPENDS_ON",
     "SUPERSEDED_BY",
+    "SAME_AS",
 }
 
 
@@ -639,6 +640,74 @@ class Neo4jService:
                    e.valid_from AS valid_from, e.valid_to AS valid_to
             """
         return self._rows(query, params)
+
+    # ------------------------------------------------------------------
+    # Entity resolution helpers (Phase 6)
+    #
+    # SAME_AS edges are reversible markers written on human approval; they
+    # do NOT mutate the underlying entities.  ``consolidate`` performs a
+    # destructive APOC merge of all nodes reachable via SAME_AS from a
+    # canonical id and must only be invoked behind an explicit user
+    # confirmation in the UI.
+    # ------------------------------------------------------------------
+
+    def write_same_as(
+        self,
+        canonical_id: str,
+        duplicate_id: str,
+        confidence: float = 0.0,
+    ) -> None:
+        """Write a reversible ``(:Entity)-[:SAME_AS]->(:Entity)`` edge.
+
+        ``canonical_id`` is the entity that should remain after a future
+        consolidation; ``duplicate_id`` is the proposed merge source.  The
+        edge stamps ``created_at`` ON CREATE so re-approvals do not rewrite
+        history, and overwrites ``confidence`` so a stronger second pass can
+        upgrade the score.
+        """
+        if not canonical_id or not duplicate_id:
+            raise Neo4jServiceError(
+                "write_same_as() requires both canonical_id and duplicate_id"
+            )
+        if canonical_id == duplicate_id:
+            raise Neo4jServiceError("write_same_as() refuses self-merge")
+        quoted_rel = self._quote_rel("SAME_AS")
+        params = {
+            "canonical": str(canonical_id),
+            "duplicate": str(duplicate_id),
+            "confidence": float(confidence),
+        }
+        query = f"""
+        MATCH (a:Entity {{id: $canonical}})
+        MATCH (b:Entity {{id: $duplicate}})
+        MERGE (a)-[r:{quoted_rel}]->(b)
+        ON CREATE SET r.created_at = datetime(),
+                      r.confidence = $confidence
+        SET r.updated_at = datetime(),
+            r.confidence = $confidence
+        """
+        self._run(query, params)
+
+    def consolidate(self, canonical_id: str) -> None:
+        """Hard-merge all entities reachable from ``canonical_id`` via SAME_AS.
+
+        Uses APOC's ``apoc.refactor.mergeNodes`` to collapse the SAME_AS
+        cluster into the canonical node, discarding conflicting properties
+        and folding incoming/outgoing relationships onto the survivor.  This
+        is destructive and irreversible — callers must gate it behind an
+        explicit human confirmation.
+        """
+        if not canonical_id:
+            raise Neo4jServiceError("consolidate() requires canonical_id")
+        params = {"canonical": str(canonical_id)}
+        query = """
+        MATCH (a:Entity {id: $canonical})-[:SAME_AS*]->(b)
+        WITH a, collect(DISTINCT b) AS dups
+        CALL apoc.refactor.mergeNodes([a] + dups, {properties: 'discard', mergeRels: true})
+        YIELD node
+        RETURN node.id AS id
+        """
+        self._run(query, params)
 
     def _verify_entity_exists(self, entity_id: str) -> bool:
         """Return True if an Entity node with this id is present in the graph."""

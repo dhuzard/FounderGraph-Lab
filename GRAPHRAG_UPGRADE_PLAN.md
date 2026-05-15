@@ -91,13 +91,13 @@ Legend: `[ ]` todo · `[~]` in progress · `[x]` done · `[!]` blocked
 
 ## Phase 6 — Entity resolution (SAME_AS first)
 
-- [ ] 6.1 Create `app/services/entity_resolver.py`:
-  - [ ] Cluster by `(type, label_embedding)` cosine ≥ 0.92 + name-token Jaccard.
-  - [ ] LLM same-as confirmation prompt.
-  - [ ] Write `(:Entity)-[:SAME_AS]->(:Entity)` edges (reversible) on approval.
-  - [ ] Provide `consolidate(canonical_id)` helper using `apoc.refactor.mergeNodes` behind explicit UI button.
-- [ ] 6.2 Extend `app/pages/03_validate_knowledge.py` with a "Resolve duplicates" tab presenting merge proposals + diff.
-- [ ] 6.3 Tests `tests/test_entity_resolver.py` — seeded duplicates → resolver proposes merge → approval writes SAME_AS edge.
+- [x] 6.1 Create `app/services/entity_resolver.py`:
+  - [x] Cluster by `(type, label_embedding)` cosine ≥ 0.92 + name-token Jaccard.
+  - [x] LLM same-as confirmation prompt.
+  - [x] Write `(:Entity)-[:SAME_AS]->(:Entity)` edges (reversible) on approval.
+  - [x] Provide `consolidate(canonical_id)` helper using `apoc.refactor.mergeNodes` behind explicit UI button.
+- [x] 6.2 Extend `app/pages/03_validate_knowledge.py` with a "Resolve duplicates" tab presenting merge proposals + diff.
+- [x] 6.3 Tests `tests/test_entity_resolver.py` — seeded duplicates → resolver proposes merge → approval writes SAME_AS edge.
 
 ## Phase 7 — Community summarization (Microsoft GraphRAG-style)
 

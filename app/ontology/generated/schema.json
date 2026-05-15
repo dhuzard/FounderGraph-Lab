@@ -3824,6 +3824,12 @@
       "slot": "related_to"
     },
     {
+      "domain": "Entity",
+      "predicate": "SAME_AS",
+      "range": "Entity",
+      "slot": "same_as"
+    },
+    {
       "domain": "Document",
       "predicate": "SOURCE_OF",
       "range": "Evidence",
