@@ -52,16 +52,16 @@ Legend: `[ ]` todo · `[~]` in progress · `[x]` done · `[!]` blocked
 
 ## Phase 2 — Ontology-driven discovery queries
 
-- [ ] 2.1 Create `app/services/discovery_queries.py` with `@register` decorator and these queries:
-  - [ ] `unsupported_assumptions`
-  - [ ] `contradicted_assumptions`
-  - [ ] `orphan_segments`
-  - [ ] `orphan_problems`
-  - [ ] `risked_milestones`
-  - [ ] `untested_critical_assumptions`
-  - [ ] `weak_evidence_chains`
-- [ ] 2.2 Create `app/pages/07_discovery.py` — tile per query, click → table with deep links.
-- [ ] 2.3 Tests `tests/test_discovery_queries.py` — seed a tiny graph via `FakeDriver` and assert each query finds the planted gap.
+- [x] 2.1 Create `app/services/discovery_queries.py` with `@register` decorator and these queries:
+  - [x] `unsupported_assumptions`
+  - [x] `contradicted_assumptions`
+  - [x] `orphan_segments`
+  - [x] `orphan_problems`
+  - [x] `risked_milestones`
+  - [x] `untested_critical_assumptions`
+  - [x] `weak_evidence_chains`
+- [x] 2.2 Create `app/pages/07_discovery.py` — tile per query, click → table with deep links.
+- [x] 2.3 Tests `tests/test_discovery_queries.py` — seed a tiny graph via `FakeDriver` and assert each query finds the planted gap.
 
 ## Phase 3 — Schema-aware text2Cypher
 
