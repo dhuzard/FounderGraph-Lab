@@ -200,6 +200,33 @@ slots:
     description: Id of the entity that replaces this one.
     range: string
 
+  # ----- timestamps (Phase 7) -----
+  created_at:
+    description: Datetime this record was created.
+    range: datetime
+
+  updated_at:
+    description: Datetime this record was last updated.
+    range: datetime
+
+  # ----- Community-specific (Phase 7) -----
+  summary:
+    description: Short LLM-generated description of a community.
+    range: string
+
+  embedding:
+    description: Numeric embedding vector.
+    range: float
+    multivalued: true
+
+  size:
+    description: Number of members in a community.
+    range: integer
+
+  risk_exposure:
+    description: Share of community members carrying high-criticality risk markers.
+    range: float
+
   # ----- Startup-specific -----
   sector:
     description: Industry or sector.
@@ -523,6 +550,14 @@ slots:
       predicate: SAME_AS
       relation: true
 
+  in_community:
+    description: Entity IN_COMMUNITY Community (Phase 7 graph-level summarization).
+    domain: Entity
+    range: Community
+    annotations:
+      predicate: IN_COMMUNITY
+      relation: true
+
 # ---------------------------------------------------------------------------
 # Classes
 # ---------------------------------------------------------------------------
@@ -781,6 +816,23 @@ classes:
     slots:
       - metric
       - assumption_text
+
+  # Community summarization (Phase 7).  Communities are *not* Entity subtypes:
+  # they live on their own ``(:Community)`` label, populated by graph-level
+  # clustering (Louvain via GDS, or label-propagation fallback) over the
+  # validated entity subgraph.  Each Community carries a short LLM summary,
+  # its embedding (indexed via the ``community_embedding`` vector index), and
+  # a ``risk_exposure`` ratio so the UI can rank by strategic risk concentration.
+  Community:
+    description: A graph-level cluster of related Entity nodes with an LLM summary.
+    slots:
+      - id
+      - summary
+      - embedding
+      - size
+      - risk_exposure
+      - created_at
+      - updated_at
 
   # Additional shell classes referenced by extractors but with no fields yet.
   Site:

@@ -218,6 +218,68 @@
       "title": "Blocker",
       "type": "object"
     },
+    "Community": {
+      "additionalProperties": false,
+      "description": "A graph-level cluster of related Entity nodes with an LLM summary.",
+      "properties": {
+        "created_at": {
+          "description": "Datetime this record was created.",
+          "format": "date-time",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "embedding": {
+          "description": "Numeric embedding vector.",
+          "items": {
+            "type": "number"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "id": {
+          "description": "Stable identifier for the entity or relation.",
+          "type": "string"
+        },
+        "risk_exposure": {
+          "description": "Share of community members carrying high-criticality risk markers.",
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "size": {
+          "description": "Number of members in a community.",
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "summary": {
+          "description": "Short LLM-generated description of a community.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "updated_at": {
+          "description": "Datetime this record was last updated.",
+          "format": "date-time",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "id"
+      ],
+      "title": "Community",
+      "type": "object"
+    },
     "Competitor": {
       "additionalProperties": false,
       "description": "A competing product, company, or workaround.",
@@ -3798,6 +3860,12 @@
       "predicate": "HAS_PROBLEM",
       "range": "Problem",
       "slot": "has_problem"
+    },
+    {
+      "domain": "Entity",
+      "predicate": "IN_COMMUNITY",
+      "range": "Community",
+      "slot": "in_community"
     },
     {
       "domain": "Document",

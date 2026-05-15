@@ -286,11 +286,11 @@ def generate_cypher(schema_path: Path, out_path: Path) -> None:
         + str(dims)
         + ", `vector.similarity_function`: 'cosine'}};"
     )
-    # Phase 7 stub -- community summaries are not yet materialised, so we keep
-    # the DDL commented out.  Uncomment (and re-run ``make generate``) once
-    # ``app/services/community_service.py`` is in place.
+    # Phase 7: community-summary vector index, populated by
+    # ``CommunityService.materialize``.  Same dimension/similarity as the
+    # entity index so we can reuse the embed function unchanged.
     lines.append(
-        "// CREATE VECTOR INDEX community_embedding IF NOT EXISTS FOR (c:Community) ON c.embedding "
+        "CREATE VECTOR INDEX community_embedding IF NOT EXISTS FOR (c:Community) ON c.embedding "
         "OPTIONS {indexConfig: {`vector.dimensions`: "
         + str(dims)
         + ", `vector.similarity_function`: 'cosine'}};"

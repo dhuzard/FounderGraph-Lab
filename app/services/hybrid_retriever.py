@@ -54,9 +54,15 @@ class RetrievalWeights:
 
 @dataclass(frozen=True)
 class RetrievedItem:
-    """A single re-ranked retrieval candidate."""
+    """A single re-ranked retrieval candidate.
 
-    kind: str  # "entity" | "chunk"
+    ``kind`` is one of ``entity`` / ``chunk`` / ``community``.  Community
+    items only appear when the retriever was constructed with a
+    :class:`CommunityService` and the question is flagged as *global* by
+    :meth:`HybridRetriever._is_global_question`.
+    """
+
+    kind: str  # "entity" | "chunk" | "community"
     id: str
     text: str
     score: float
@@ -184,6 +190,7 @@ class HybridRetriever:
         expansion_hops: int | None = None,
         allowed_relationships: list[str] | None = None,
         final_top_k: int = 30,
+        community_service: Any | None = None,
     ) -> None:
         # Import here to avoid a circular: config -> nothing in this module.
         from app import config as _cfg
@@ -202,6 +209,11 @@ class HybridRetriever:
         )
         self.allowed_relationships = allowed_relationships
         self.final_top_k = final_top_k
+        # Phase 7 -- when a community summariser is wired in, ``retrieve``
+        # routes "global"-flavoured questions through community summaries
+        # in addition to the standard entity + chunk seeds.  ``None`` keeps
+        # the pre-Phase-7 behaviour intact.
+        self.community_service = community_service
 
     # ------------------------------------------------------------------
     # Public entry point
@@ -387,6 +399,20 @@ class HybridRetriever:
         items.sort(key=lambda it: it.score, reverse=True)
         items = items[: self.final_top_k]
 
+        # ------------------------------------------------------------------
+        # Stage D (Phase 7): community summaries for global questions
+        # ------------------------------------------------------------------
+        community_items = self._maybe_community_items(question, query_vec, traces)
+        if community_items:
+            # Prepend so the LLM consumes the global summary BEFORE the
+            # narrow entity/chunk evidence -- this matches Microsoft's
+            # GraphRAG observation that a high-level summary anchors the
+            # subsequent finer-grained retrieval.
+            items = community_items + items
+            # Truncate again to keep the contract; community items count
+            # toward the top-K budget.
+            items = items[: self.final_top_k]
+
         return HybridResult(
             items=items,
             seed_entity_ids=seed_entity_ids,
@@ -394,6 +420,102 @@ class HybridRetriever:
             expansion_node_ids=expansion_node_ids,
             cypher_traces=traces,
         )
+
+    # ------------------------------------------------------------------
+    # Phase 7 — global question routing
+    # ------------------------------------------------------------------
+
+    # Keywords that flag a question as "global" rather than "local".  The
+    # vocabulary is intentionally a hard-coded English substring list; we
+    # accept the linguistic crudeness in exchange for zero LLM round-trips
+    # on the routing decision.
+    _GLOBAL_HINTS: tuple[str, ...] = (
+        "overall",
+        "across",
+        "in general",
+        "summary",
+        "summarize",
+        "communities",
+        "clusters",
+        "themes",
+        "landscape",
+        "big picture",
+        "in aggregate",
+    )
+
+    @classmethod
+    def _is_global_question(cls, question: str) -> bool:
+        """True if the question reads as graph-wide rather than entity-local."""
+        if not question:
+            return False
+        lowered = question.lower()
+        return any(hint in lowered for hint in cls._GLOBAL_HINTS)
+
+    def _maybe_community_items(
+        self,
+        question: str,
+        query_vec: list[float],
+        traces: list[str],
+    ) -> list[RetrievedItem]:
+        """Vector-search community summaries when the question is global.
+
+        Returns an empty list when no community service is wired in or when
+        the question doesn't trip the global heuristic.  Failures are caught
+        so a missing community index never breaks a normal retrieval call.
+        """
+        if self.community_service is None or not self._is_global_question(question):
+            return []
+        try:
+            communities = self.community_service.search(query_vec, k=self.seed_k)
+        except Exception as exc:  # noqa: BLE001
+            traces.append(f"community_service.search failed: {exc!r}")
+            return []
+        traces.append(
+            f"community_service.search(k={self.seed_k}) -> {len(communities)}"
+        )
+        out: list[RetrievedItem] = []
+        for community in communities:
+            # ``community`` is duck-typed: the service returns
+            # :class:`Community` dataclasses but a stub may yield bare dicts.
+            cid = str(getattr(community, "id", None) or community.get("id"))  # type: ignore[union-attr]
+            summary = str(
+                getattr(community, "summary", None)
+                or (community.get("summary") if isinstance(community, dict) else "")
+                or ""
+            )
+            size = int(
+                getattr(community, "size", 0)
+                or (community.get("size") if isinstance(community, dict) else 0)
+                or 0
+            )
+            risk_exposure = float(
+                getattr(community, "risk_exposure", 0.0)
+                or (
+                    community.get("risk_exposure")
+                    if isinstance(community, dict)
+                    else 0.0
+                )
+                or 0.0
+            )
+            score = float(
+                getattr(community, "score", None)
+                or (community.get("score") if isinstance(community, dict) else 0.0)
+                or 0.0
+            )
+            out.append(
+                RetrievedItem(
+                    kind="community",
+                    id=cid,
+                    text=summary or f"Community {cid}",
+                    score=score,
+                    payload={
+                        "size": size,
+                        "risk_exposure": risk_exposure,
+                        "kind": "community",
+                    },
+                )
+            )
+        return out
 
     # ------------------------------------------------------------------
     # Stage A helpers

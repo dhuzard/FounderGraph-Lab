@@ -199,6 +199,7 @@ class OntologyLoader:
         # Relation slots are stashed under ``x-foundergraph-relations`` by the
         # generator so we can recover (predicate, subject, object) triples.
         relations: list[dict[str, str]] = []
+        non_entity_labels: set[str] = set()
         for entry in payload.get("x-foundergraph-relations") or []:
             if not isinstance(entry, dict):
                 continue
@@ -207,6 +208,30 @@ class OntologyLoader:
             obj = entry.get("range") or "Entity"
             if pred:
                 relations.append({"predicate": pred, "subject": subj, "object": obj})
+                # Phase 7 -- some relations point at non-Entity node labels
+                # (notably Community).  Promote any such range to a known
+                # graph label so ``allowed_labels`` covers the full set of
+                # nodes the runtime expects to write.
+                for endpoint in (subj, obj):
+                    if (
+                        endpoint
+                        and endpoint not in entity_labels
+                        and endpoint in defs
+                        and endpoint not in {"Entity", "Document"}
+                    ):
+                        non_entity_labels.add(endpoint)
+
+        for name in sorted(non_entity_labels):
+            spec = defs.get(name, {})
+            if not isinstance(spec, dict):
+                continue
+            props = list(spec.get("properties", {}).keys()) if isinstance(spec.get("properties"), dict) else []
+            required = list(spec.get("required") or [])
+            classes.setdefault(name, {
+                "description": spec.get("description", ""),
+                "fields": props,
+                "required_fields": required,
+            })
 
         # Linkml schemas store the version at the root; the JSON Schema mirrors
         # it under metadata if available -- otherwise we fall back to "unknown".

@@ -41,6 +41,18 @@
 <https://foundergraph.dev/ontology/Blocker> <http://www.w3.org/ns/shacl#property> _:cb46627a410b897af7a1e4bdc16a8fd55db2d7f971ba87cfb4777d3a1b045118dda .
 <https://foundergraph.dev/ontology/Blocker> <http://www.w3.org/ns/shacl#property> _:cb4783ab4d655d12136f947ba9aac6e0cb7242cb9231a409f25e6afcf5011a412e1 .
 <https://foundergraph.dev/ontology/Blocker> <http://www.w3.org/ns/shacl#targetClass> <https://foundergraph.dev/ontology/Blocker> .
+<https://foundergraph.dev/ontology/Community> <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <http://www.w3.org/ns/shacl#NodeShape> .
+<https://foundergraph.dev/ontology/Community> <http://www.w3.org/2000/01/rdf-schema#comment> "A graph-level cluster of related Entity nodes with an LLM summary." .
+<https://foundergraph.dev/ontology/Community> <http://www.w3.org/ns/shacl#closed> "true"^^<http://www.w3.org/2001/XMLSchema#boolean> .
+<https://foundergraph.dev/ontology/Community> <http://www.w3.org/ns/shacl#ignoredProperties> _:cb1d72d8f27e244fafec366cca58ccb52483263e1d41b9a251becab590d41122567 .
+<https://foundergraph.dev/ontology/Community> <http://www.w3.org/ns/shacl#property> _:cb2bb854601bef49a4f2f829c31a6bcc232c796a3af4efd9dc35bf9b0b2e03eb8c6 .
+<https://foundergraph.dev/ontology/Community> <http://www.w3.org/ns/shacl#property> _:cb2c7d9831055678a51815cf92d625558540fb1cb8acd8d2e1c5dd38386a89eeb10 .
+<https://foundergraph.dev/ontology/Community> <http://www.w3.org/ns/shacl#property> _:cb2d3f08cfc44e53ff30374f0f8a787d4c4f84ae65a179740b939e0a4f9a3b4c919 .
+<https://foundergraph.dev/ontology/Community> <http://www.w3.org/ns/shacl#property> _:cb3288656f6a0a00bf979bf746d02f8bd9b3b44c29e284fedc6a482192c9a351036 .
+<https://foundergraph.dev/ontology/Community> <http://www.w3.org/ns/shacl#property> _:cb3582537650154c9dfb2faaca533fa56a4381fffb6b15582901c381c9c5e143fe8 .
+<https://foundergraph.dev/ontology/Community> <http://www.w3.org/ns/shacl#property> _:cb3759f2eeec610d6a9d24f0856ff140afb5abee8a8238578c1f5f261f7f3694ef9 .
+<https://foundergraph.dev/ontology/Community> <http://www.w3.org/ns/shacl#property> _:cb3b4328b6092470b41cbe4fc0b1085d2b5dea4504bdc4d0c99b641e8ec52de2d2c .
+<https://foundergraph.dev/ontology/Community> <http://www.w3.org/ns/shacl#targetClass> <https://foundergraph.dev/ontology/Community> .
 <https://foundergraph.dev/ontology/Competitor> <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <http://www.w3.org/ns/shacl#NodeShape> .
 <https://foundergraph.dev/ontology/Competitor> <http://www.w3.org/2000/01/rdf-schema#comment> "A competing product, company, or workaround." .
 <https://foundergraph.dev/ontology/Competitor> <http://www.w3.org/ns/shacl#closed> "true"^^<http://www.w3.org/2001/XMLSchema#boolean> .
@@ -1005,6 +1017,8 @@ _:cb1d4925b32ee85bc24e3c317294540ccedf839ceafc3bd7a6c2eb66940fd42ee38 <http://ww
 _:cb1d4925b32ee85bc24e3c317294540ccedf839ceafc3bd7a6c2eb66940fd42ee38 <http://www.w3.org/1999/02/22-rdf-syntax-ns#rest> _:cb2555a048e1b5aacbcecdf8a73373f74a516cfaecd3512bcd82e9bef87bae13769 .
 _:cb1d6b8b575e044e00281c19d4bc7a1c84b5c79b27a178b4c2ffcf701b10196832c <http://www.w3.org/1999/02/22-rdf-syntax-ns#first> "high" .
 _:cb1d6b8b575e044e00281c19d4bc7a1c84b5c79b27a178b4c2ffcf701b10196832c <http://www.w3.org/1999/02/22-rdf-syntax-ns#rest> _:cb310e5507463da0c1ed846082ddb8db14e35f4375c102390a2da97c7a9dde838a9 .
+_:cb1d72d8f27e244fafec366cca58ccb52483263e1d41b9a251becab590d41122567 <http://www.w3.org/1999/02/22-rdf-syntax-ns#first> <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> .
+_:cb1d72d8f27e244fafec366cca58ccb52483263e1d41b9a251becab590d41122567 <http://www.w3.org/1999/02/22-rdf-syntax-ns#rest> <http://www.w3.org/1999/02/22-rdf-syntax-ns#nil> .
 _:cb1d7428a5bc1fa56bbeaec8582e980c5afd7ce27a105da93879066bf3a928c9771 <http://www.w3.org/1999/02/22-rdf-syntax-ns#first> "moderate" .
 _:cb1d7428a5bc1fa56bbeaec8582e980c5afd7ce27a105da93879066bf3a928c9771 <http://www.w3.org/1999/02/22-rdf-syntax-ns#rest> _:cb2b55e19116371ff59940b0a5445119715315f0821cff5dd647bf79cb7c3121748 .
 _:cb1d87f001164cffe6a75e0d9cc8b0d7a37cd31d5c4f482de7cfc45a18c127dcbb1 <http://www.w3.org/1999/02/22-rdf-syntax-ns#first> "constant" .
@@ -2168,6 +2182,11 @@ _:cb2ba70b0833bf10d48e0b8c66badf85b080b96940ca2ad84b6175ff09357031549 <http://ww
 _:cb2ba70b0833bf10d48e0b8c66badf85b080b96940ca2ad84b6175ff09357031549 <http://www.w3.org/ns/shacl#nodeKind> <http://www.w3.org/ns/shacl#Literal> .
 _:cb2ba70b0833bf10d48e0b8c66badf85b080b96940ca2ad84b6175ff09357031549 <http://www.w3.org/ns/shacl#order> "2"^^<http://www.w3.org/2001/XMLSchema#integer> .
 _:cb2ba70b0833bf10d48e0b8c66badf85b080b96940ca2ad84b6175ff09357031549 <http://www.w3.org/ns/shacl#path> <https://foundergraph.dev/ontology/id> .
+_:cb2bb854601bef49a4f2f829c31a6bcc232c796a3af4efd9dc35bf9b0b2e03eb8c6 <http://www.w3.org/ns/shacl#datatype> <http://www.w3.org/2001/XMLSchema#float> .
+_:cb2bb854601bef49a4f2f829c31a6bcc232c796a3af4efd9dc35bf9b0b2e03eb8c6 <http://www.w3.org/ns/shacl#description> "Numeric embedding vector." .
+_:cb2bb854601bef49a4f2f829c31a6bcc232c796a3af4efd9dc35bf9b0b2e03eb8c6 <http://www.w3.org/ns/shacl#nodeKind> <http://www.w3.org/ns/shacl#Literal> .
+_:cb2bb854601bef49a4f2f829c31a6bcc232c796a3af4efd9dc35bf9b0b2e03eb8c6 <http://www.w3.org/ns/shacl#order> "2"^^<http://www.w3.org/2001/XMLSchema#integer> .
+_:cb2bb854601bef49a4f2f829c31a6bcc232c796a3af4efd9dc35bf9b0b2e03eb8c6 <http://www.w3.org/ns/shacl#path> <https://foundergraph.dev/ontology/embedding> .
 _:cb2bc1f8763c47db96281b3222620af9fdbc025aeb962830ff834532d38a0c60a7b <http://www.w3.org/ns/shacl#datatype> <http://www.w3.org/2001/XMLSchema#string> .
 _:cb2bc1f8763c47db96281b3222620af9fdbc025aeb962830ff834532d38a0c60a7b <http://www.w3.org/ns/shacl#description> "Free-text description." .
 _:cb2bc1f8763c47db96281b3222620af9fdbc025aeb962830ff834532d38a0c60a7b <http://www.w3.org/ns/shacl#maxCount> "1"^^<http://www.w3.org/2001/XMLSchema#integer> .
@@ -2249,6 +2268,12 @@ _:cb2c643d21688117078eeebe2a9e54ba1fff5659cb9478f1688d86e765ab903cf5d <http://ww
 _:cb2c643d21688117078eeebe2a9e54ba1fff5659cb9478f1688d86e765ab903cf5d <http://www.w3.org/ns/shacl#nodeKind> <http://www.w3.org/ns/shacl#Literal> .
 _:cb2c643d21688117078eeebe2a9e54ba1fff5659cb9478f1688d86e765ab903cf5d <http://www.w3.org/ns/shacl#order> "5"^^<http://www.w3.org/2001/XMLSchema#integer> .
 _:cb2c643d21688117078eeebe2a9e54ba1fff5659cb9478f1688d86e765ab903cf5d <http://www.w3.org/ns/shacl#path> <https://foundergraph.dev/ontology/description> .
+_:cb2c7d9831055678a51815cf92d625558540fb1cb8acd8d2e1c5dd38386a89eeb10 <http://www.w3.org/ns/shacl#datatype> <http://www.w3.org/2001/XMLSchema#integer> .
+_:cb2c7d9831055678a51815cf92d625558540fb1cb8acd8d2e1c5dd38386a89eeb10 <http://www.w3.org/ns/shacl#description> "Number of members in a community." .
+_:cb2c7d9831055678a51815cf92d625558540fb1cb8acd8d2e1c5dd38386a89eeb10 <http://www.w3.org/ns/shacl#maxCount> "1"^^<http://www.w3.org/2001/XMLSchema#integer> .
+_:cb2c7d9831055678a51815cf92d625558540fb1cb8acd8d2e1c5dd38386a89eeb10 <http://www.w3.org/ns/shacl#nodeKind> <http://www.w3.org/ns/shacl#Literal> .
+_:cb2c7d9831055678a51815cf92d625558540fb1cb8acd8d2e1c5dd38386a89eeb10 <http://www.w3.org/ns/shacl#order> "3"^^<http://www.w3.org/2001/XMLSchema#integer> .
+_:cb2c7d9831055678a51815cf92d625558540fb1cb8acd8d2e1c5dd38386a89eeb10 <http://www.w3.org/ns/shacl#path> <https://foundergraph.dev/ontology/size> .
 _:cb2c7f1b5ec3f33768d5d8c0e17c5075b3177f8b45ceb3476b2614c4214715afae6 <http://www.w3.org/ns/shacl#datatype> <http://www.w3.org/2001/XMLSchema#string> .
 _:cb2c7f1b5ec3f33768d5d8c0e17c5075b3177f8b45ceb3476b2614c4214715afae6 <http://www.w3.org/ns/shacl#description> "Human-readable display name." .
 _:cb2c7f1b5ec3f33768d5d8c0e17c5075b3177f8b45ceb3476b2614c4214715afae6 <http://www.w3.org/ns/shacl#maxCount> "1"^^<http://www.w3.org/2001/XMLSchema#integer> .
@@ -2349,6 +2374,12 @@ _:cb2d3d0c13fdf051ff879dba7a79003b895f6ba37ae06e704131c15b4e8ca06f8a4 <http://ww
 _:cb2d3d0c13fdf051ff879dba7a79003b895f6ba37ae06e704131c15b4e8ca06f8a4 <http://www.w3.org/ns/shacl#nodeKind> <http://www.w3.org/ns/shacl#Literal> .
 _:cb2d3d0c13fdf051ff879dba7a79003b895f6ba37ae06e704131c15b4e8ca06f8a4 <http://www.w3.org/ns/shacl#order> "2"^^<http://www.w3.org/2001/XMLSchema#integer> .
 _:cb2d3d0c13fdf051ff879dba7a79003b895f6ba37ae06e704131c15b4e8ca06f8a4 <http://www.w3.org/ns/shacl#path> <https://foundergraph.dev/ontology/name> .
+_:cb2d3f08cfc44e53ff30374f0f8a787d4c4f84ae65a179740b939e0a4f9a3b4c919 <http://www.w3.org/ns/shacl#datatype> <http://www.w3.org/2001/XMLSchema#string> .
+_:cb2d3f08cfc44e53ff30374f0f8a787d4c4f84ae65a179740b939e0a4f9a3b4c919 <http://www.w3.org/ns/shacl#description> "Stable identifier for the entity or relation." .
+_:cb2d3f08cfc44e53ff30374f0f8a787d4c4f84ae65a179740b939e0a4f9a3b4c919 <http://www.w3.org/ns/shacl#maxCount> "1"^^<http://www.w3.org/2001/XMLSchema#integer> .
+_:cb2d3f08cfc44e53ff30374f0f8a787d4c4f84ae65a179740b939e0a4f9a3b4c919 <http://www.w3.org/ns/shacl#nodeKind> <http://www.w3.org/ns/shacl#Literal> .
+_:cb2d3f08cfc44e53ff30374f0f8a787d4c4f84ae65a179740b939e0a4f9a3b4c919 <http://www.w3.org/ns/shacl#order> "0"^^<http://www.w3.org/2001/XMLSchema#integer> .
+_:cb2d3f08cfc44e53ff30374f0f8a787d4c4f84ae65a179740b939e0a4f9a3b4c919 <http://www.w3.org/ns/shacl#path> <https://foundergraph.dev/ontology/id> .
 _:cb2d4250089a6f52ca3829c9e95f472492569b5a124cd134d6475c4f8188c1d13bf <http://www.w3.org/1999/02/22-rdf-syntax-ns#first> "ungraded" .
 _:cb2d4250089a6f52ca3829c9e95f472492569b5a124cd134d6475c4f8188c1d13bf <http://www.w3.org/1999/02/22-rdf-syntax-ns#rest> <http://www.w3.org/1999/02/22-rdf-syntax-ns#nil> .
 _:cb2d42d3a7cdd46951e4521b4bb3d8dfbc96b720b0f27fa0be1a31c50430f7f24cc <http://www.w3.org/ns/shacl#datatype> <http://www.w3.org/2001/XMLSchema#string> .
@@ -3009,6 +3040,12 @@ _:cb3277fe0b6e439ddbf9dc914999f0371a75ac6d40c0204c0e510197999f6f09c6a <http://ww
 _:cb3277fe0b6e439ddbf9dc914999f0371a75ac6d40c0204c0e510197999f6f09c6a <http://www.w3.org/ns/shacl#nodeKind> <http://www.w3.org/ns/shacl#Literal> .
 _:cb3277fe0b6e439ddbf9dc914999f0371a75ac6d40c0204c0e510197999f6f09c6a <http://www.w3.org/ns/shacl#order> "4"^^<http://www.w3.org/2001/XMLSchema#integer> .
 _:cb3277fe0b6e439ddbf9dc914999f0371a75ac6d40c0204c0e510197999f6f09c6a <http://www.w3.org/ns/shacl#path> <https://foundergraph.dev/ontology/source_document_id> .
+_:cb3288656f6a0a00bf979bf746d02f8bd9b3b44c29e284fedc6a482192c9a351036 <http://www.w3.org/ns/shacl#datatype> <http://www.w3.org/2001/XMLSchema#dateTime> .
+_:cb3288656f6a0a00bf979bf746d02f8bd9b3b44c29e284fedc6a482192c9a351036 <http://www.w3.org/ns/shacl#description> "Datetime this record was last updated." .
+_:cb3288656f6a0a00bf979bf746d02f8bd9b3b44c29e284fedc6a482192c9a351036 <http://www.w3.org/ns/shacl#maxCount> "1"^^<http://www.w3.org/2001/XMLSchema#integer> .
+_:cb3288656f6a0a00bf979bf746d02f8bd9b3b44c29e284fedc6a482192c9a351036 <http://www.w3.org/ns/shacl#nodeKind> <http://www.w3.org/ns/shacl#Literal> .
+_:cb3288656f6a0a00bf979bf746d02f8bd9b3b44c29e284fedc6a482192c9a351036 <http://www.w3.org/ns/shacl#order> "6"^^<http://www.w3.org/2001/XMLSchema#integer> .
+_:cb3288656f6a0a00bf979bf746d02f8bd9b3b44c29e284fedc6a482192c9a351036 <http://www.w3.org/ns/shacl#path> <https://foundergraph.dev/ontology/updated_at> .
 _:cb3298d2015aced4098c9d350f1b513b07fca0b4bf49805f1839fd0800e9642180f <http://www.w3.org/ns/shacl#datatype> <http://www.w3.org/2001/XMLSchema#string> .
 _:cb3298d2015aced4098c9d350f1b513b07fca0b4bf49805f1839fd0800e9642180f <http://www.w3.org/ns/shacl#description> "Human-readable display name." .
 _:cb3298d2015aced4098c9d350f1b513b07fca0b4bf49805f1839fd0800e9642180f <http://www.w3.org/ns/shacl#maxCount> "1"^^<http://www.w3.org/2001/XMLSchema#integer> .
@@ -3428,6 +3465,12 @@ _:cb35757ecfb581b3b6f46a764b0405f44fa202616b51371fa1c300e6732c986036e <http://ww
 _:cb35757ecfb581b3b6f46a764b0405f44fa202616b51371fa1c300e6732c986036e <http://www.w3.org/ns/shacl#nodeKind> <http://www.w3.org/ns/shacl#Literal> .
 _:cb35757ecfb581b3b6f46a764b0405f44fa202616b51371fa1c300e6732c986036e <http://www.w3.org/ns/shacl#order> "4"^^<http://www.w3.org/2001/XMLSchema#integer> .
 _:cb35757ecfb581b3b6f46a764b0405f44fa202616b51371fa1c300e6732c986036e <http://www.w3.org/ns/shacl#path> <https://foundergraph.dev/ontology/label> .
+_:cb3582537650154c9dfb2faaca533fa56a4381fffb6b15582901c381c9c5e143fe8 <http://www.w3.org/ns/shacl#datatype> <http://www.w3.org/2001/XMLSchema#string> .
+_:cb3582537650154c9dfb2faaca533fa56a4381fffb6b15582901c381c9c5e143fe8 <http://www.w3.org/ns/shacl#description> "Short LLM-generated description of a community." .
+_:cb3582537650154c9dfb2faaca533fa56a4381fffb6b15582901c381c9c5e143fe8 <http://www.w3.org/ns/shacl#maxCount> "1"^^<http://www.w3.org/2001/XMLSchema#integer> .
+_:cb3582537650154c9dfb2faaca533fa56a4381fffb6b15582901c381c9c5e143fe8 <http://www.w3.org/ns/shacl#nodeKind> <http://www.w3.org/ns/shacl#Literal> .
+_:cb3582537650154c9dfb2faaca533fa56a4381fffb6b15582901c381c9c5e143fe8 <http://www.w3.org/ns/shacl#order> "1"^^<http://www.w3.org/2001/XMLSchema#integer> .
+_:cb3582537650154c9dfb2faaca533fa56a4381fffb6b15582901c381c9c5e143fe8 <http://www.w3.org/ns/shacl#path> <https://foundergraph.dev/ontology/summary> .
 _:cb358dc6b0548bfd129e41c6613a9fc4b6637a27bda259c514c76f3a01733010832 <http://www.w3.org/ns/shacl#datatype> <http://www.w3.org/2001/XMLSchema#string> .
 _:cb358dc6b0548bfd129e41c6613a9fc4b6637a27bda259c514c76f3a01733010832 <http://www.w3.org/ns/shacl#description> "Id of the entity that replaces this one." .
 _:cb358dc6b0548bfd129e41c6613a9fc4b6637a27bda259c514c76f3a01733010832 <http://www.w3.org/ns/shacl#maxCount> "1"^^<http://www.w3.org/2001/XMLSchema#integer> .
@@ -3695,6 +3738,12 @@ _:cb3759dd2b1744a68fcf731b29e146876fc7519bfd4830f3ef100960db484d96dfd <http://ww
 _:cb3759dd2b1744a68fcf731b29e146876fc7519bfd4830f3ef100960db484d96dfd <http://www.w3.org/ns/shacl#nodeKind> <http://www.w3.org/ns/shacl#Literal> .
 _:cb3759dd2b1744a68fcf731b29e146876fc7519bfd4830f3ef100960db484d96dfd <http://www.w3.org/ns/shacl#order> "16"^^<http://www.w3.org/2001/XMLSchema#integer> .
 _:cb3759dd2b1744a68fcf731b29e146876fc7519bfd4830f3ef100960db484d96dfd <http://www.w3.org/ns/shacl#path> <https://foundergraph.dev/ontology/superseded_by> .
+_:cb3759f2eeec610d6a9d24f0856ff140afb5abee8a8238578c1f5f261f7f3694ef9 <http://www.w3.org/ns/shacl#datatype> <http://www.w3.org/2001/XMLSchema#float> .
+_:cb3759f2eeec610d6a9d24f0856ff140afb5abee8a8238578c1f5f261f7f3694ef9 <http://www.w3.org/ns/shacl#description> "Share of community members carrying high-criticality risk markers." .
+_:cb3759f2eeec610d6a9d24f0856ff140afb5abee8a8238578c1f5f261f7f3694ef9 <http://www.w3.org/ns/shacl#maxCount> "1"^^<http://www.w3.org/2001/XMLSchema#integer> .
+_:cb3759f2eeec610d6a9d24f0856ff140afb5abee8a8238578c1f5f261f7f3694ef9 <http://www.w3.org/ns/shacl#nodeKind> <http://www.w3.org/ns/shacl#Literal> .
+_:cb3759f2eeec610d6a9d24f0856ff140afb5abee8a8238578c1f5f261f7f3694ef9 <http://www.w3.org/ns/shacl#order> "4"^^<http://www.w3.org/2001/XMLSchema#integer> .
+_:cb3759f2eeec610d6a9d24f0856ff140afb5abee8a8238578c1f5f261f7f3694ef9 <http://www.w3.org/ns/shacl#path> <https://foundergraph.dev/ontology/risk_exposure> .
 _:cb377f4a79943333459daa0e0a1c604da20ffc1801cce77a005325a2c0b15070ae7 <http://www.w3.org/ns/shacl#description> "How directly the source supports the assertion." .
 _:cb377f4a79943333459daa0e0a1c604da20ffc1801cce77a005325a2c0b15070ae7 <http://www.w3.org/ns/shacl#in> _:cb10706b5e78f9d866528aacbd32a44ca27d71dea49358bf46eba23894c26136f12 .
 _:cb377f4a79943333459daa0e0a1c604da20ffc1801cce77a005325a2c0b15070ae7 <http://www.w3.org/ns/shacl#maxCount> "1"^^<http://www.w3.org/2001/XMLSchema#integer> .
@@ -4030,6 +4079,12 @@ _:cb3b1c00e11cd51f8b802fafe4fb884badb35e09bbba4174b77f3963461b0ce372b <http://ww
 _:cb3b1c00e11cd51f8b802fafe4fb884badb35e09bbba4174b77f3963461b0ce372b <http://www.w3.org/ns/shacl#nodeKind> <http://www.w3.org/ns/shacl#Literal> .
 _:cb3b1c00e11cd51f8b802fafe4fb884badb35e09bbba4174b77f3963461b0ce372b <http://www.w3.org/ns/shacl#order> "1"^^<http://www.w3.org/2001/XMLSchema#integer> .
 _:cb3b1c00e11cd51f8b802fafe4fb884badb35e09bbba4174b77f3963461b0ce372b <http://www.w3.org/ns/shacl#path> <https://foundergraph.dev/ontology/rationale> .
+_:cb3b4328b6092470b41cbe4fc0b1085d2b5dea4504bdc4d0c99b641e8ec52de2d2c <http://www.w3.org/ns/shacl#datatype> <http://www.w3.org/2001/XMLSchema#dateTime> .
+_:cb3b4328b6092470b41cbe4fc0b1085d2b5dea4504bdc4d0c99b641e8ec52de2d2c <http://www.w3.org/ns/shacl#description> "Datetime this record was created." .
+_:cb3b4328b6092470b41cbe4fc0b1085d2b5dea4504bdc4d0c99b641e8ec52de2d2c <http://www.w3.org/ns/shacl#maxCount> "1"^^<http://www.w3.org/2001/XMLSchema#integer> .
+_:cb3b4328b6092470b41cbe4fc0b1085d2b5dea4504bdc4d0c99b641e8ec52de2d2c <http://www.w3.org/ns/shacl#nodeKind> <http://www.w3.org/ns/shacl#Literal> .
+_:cb3b4328b6092470b41cbe4fc0b1085d2b5dea4504bdc4d0c99b641e8ec52de2d2c <http://www.w3.org/ns/shacl#order> "5"^^<http://www.w3.org/2001/XMLSchema#integer> .
+_:cb3b4328b6092470b41cbe4fc0b1085d2b5dea4504bdc4d0c99b641e8ec52de2d2c <http://www.w3.org/ns/shacl#path> <https://foundergraph.dev/ontology/created_at> .
 _:cb3b564746b69fbbd33e152c71dfae139ddc6aba79d4611e384e00b00fc683586ea <http://www.w3.org/ns/shacl#description> "Human-assigned reviewer confidence." .
 _:cb3b564746b69fbbd33e152c71dfae139ddc6aba79d4611e384e00b00fc683586ea <http://www.w3.org/ns/shacl#in> _:cb2f6a34fb41f4db584c0686a14c5d2f43f70e7de9b2c002d6b1e9be0820d7d1207 .
 _:cb3b564746b69fbbd33e152c71dfae139ddc6aba79d4611e384e00b00fc683586ea <http://www.w3.org/ns/shacl#maxCount> "1"^^<http://www.w3.org/2001/XMLSchema#integer> .

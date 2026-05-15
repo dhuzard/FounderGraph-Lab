@@ -101,11 +101,11 @@ Legend: `[ ]` todo · `[~]` in progress · `[x]` done · `[!]` blocked
 
 ## Phase 7 — Community summarization (Microsoft GraphRAG-style)
 
-- [ ] 7.1 Add `app/services/community_service.py` — GDS Louvain projection, writes `community_id` onto nodes, builds `(:Community {id, summary, embedding})`.
-- [ ] 7.2 Create `VECTOR INDEX community_embedding` (Phase 4 leaves a stub).
-- [ ] 7.3 Add `app/pages/08_communities.py` — community list ranked by size / risk exposure.
-- [ ] 7.4 Hybrid retriever routes global questions to community summaries, local questions to nodes.
-- [ ] 7.5 Tests — community detection deterministic on a fixed seed graph.
+- [x] 7.1 Add `app/services/community_service.py` — GDS Louvain projection, writes `community_id` onto nodes, builds `(:Community {id, summary, embedding})`.
+- [x] 7.2 Create `VECTOR INDEX community_embedding` (Phase 4 leaves a stub).
+- [x] 7.3 Add `app/pages/08_communities.py` — community list ranked by size / risk exposure.
+- [x] 7.4 Hybrid retriever routes global questions to community summaries, local questions to nodes.
+- [x] 7.5 Tests — community detection deterministic on a fixed seed graph.
 
 ## Phase 8 — Polish, MCP, docs
 

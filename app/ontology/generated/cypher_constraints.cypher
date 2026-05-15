@@ -21,6 +21,7 @@ CREATE INDEX rel_DEPENDS_ON_id IF NOT EXISTS FOR ()-[r:`DEPENDS_ON`]-() ON (r.id
 CREATE INDEX rel_FUNDS_id IF NOT EXISTS FOR ()-[r:`FUNDS`]-() ON (r.id);
 CREATE INDEX rel_GENERATES_id IF NOT EXISTS FOR ()-[r:`GENERATES`]-() ON (r.id);
 CREATE INDEX rel_HAS_PROBLEM_id IF NOT EXISTS FOR ()-[r:`HAS_PROBLEM`]-() ON (r.id);
+CREATE INDEX rel_IN_COMMUNITY_id IF NOT EXISTS FOR ()-[r:`IN_COMMUNITY`]-() ON (r.id);
 CREATE INDEX rel_MENTIONS_id IF NOT EXISTS FOR ()-[r:`MENTIONS`]-() ON (r.id);
 CREATE INDEX rel_PROTECTS_id IF NOT EXISTS FOR ()-[r:`PROTECTS`]-() ON (r.id);
 CREATE INDEX rel_PROVIDES_id IF NOT EXISTS FOR ()-[r:`PROVIDES`]-() ON (r.id);
@@ -35,4 +36,4 @@ CREATE INDEX rel_THREATENS_id IF NOT EXISTS FOR ()-[r:`THREATENS`]-() ON (r.id);
 
 // --- Native vector indexes (Phase 4 / Phase 7) ---
 CREATE VECTOR INDEX entity_embedding IF NOT EXISTS FOR (e:Entity) ON e.embedding OPTIONS {indexConfig: {`vector.dimensions`: 768, `vector.similarity_function`: 'cosine'}};
-// CREATE VECTOR INDEX community_embedding IF NOT EXISTS FOR (c:Community) ON c.embedding OPTIONS {indexConfig: {`vector.dimensions`: 768, `vector.similarity_function`: 'cosine'}};
+CREATE VECTOR INDEX community_embedding IF NOT EXISTS FOR (c:Community) ON c.embedding OPTIONS {indexConfig: {`vector.dimensions`: 768, `vector.similarity_function`: 'cosine'}};

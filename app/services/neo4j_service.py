@@ -37,6 +37,8 @@ DEFAULT_ALLOWED_LABELS = {
     "RegulatoryConstraint",
     "TechnicalDependency",
     "FinancialHypothesis",
+    # Phase 7 — graph-level summarisation cluster nodes.
+    "Community",
 }
 DEFAULT_ALLOWED_RELATIONSHIPS = {
     "RELATED_TO",
@@ -58,6 +60,8 @@ DEFAULT_ALLOWED_RELATIONSHIPS = {
     "DEPENDS_ON",
     "SUPERSEDED_BY",
     "SAME_AS",
+    # Phase 7 — Entity -> Community membership.
+    "IN_COMMUNITY",
 }
 
 
@@ -858,6 +862,107 @@ class Neo4jService:
         RETURN node.id AS id
         """
         self._run(query, params)
+
+    # ------------------------------------------------------------------
+    # Community summarisation helpers (Phase 7)
+    #
+    # Communities are graph-level cluster nodes carrying a short LLM
+    # summary and an embedding indexed by ``community_embedding``.  They
+    # connect back to entities via reversible ``IN_COMMUNITY`` edges so a
+    # later re-clustering can rewrite memberships without touching the
+    # underlying entity properties.
+    # ------------------------------------------------------------------
+
+    def write_community_node(self, community: dict[str, Any]) -> None:
+        """Upsert a ``(:Community)`` node from a plain dict.
+
+        Required key: ``id``.  Optional: ``summary``, ``embedding``, ``size``,
+        ``risk_exposure``.  ``updated_at`` is always stamped; ``created_at``
+        only on first insert so re-summarisation does not rewrite history.
+        """
+        community_id = community.get("id")
+        if not community_id:
+            raise Neo4jServiceError("write_community_node() requires id")
+        embedding_raw = community.get("embedding") or []
+        if isinstance(embedding_raw, (list, tuple)):
+            embedding = [float(v) for v in embedding_raw]
+        else:
+            embedding = []
+        params: dict[str, Any] = {
+            "id": str(community_id),
+            "summary": str(community.get("summary") or ""),
+            "embedding": embedding,
+            "size": int(community.get("size") or 0),
+            "risk_exposure": float(community.get("risk_exposure") or 0.0),
+        }
+        query = """
+        MERGE (c:Community {id: $id})
+        ON CREATE SET c.created_at = datetime()
+        SET c.summary = $summary,
+            c.embedding = $embedding,
+            c.size = $size,
+            c.risk_exposure = $risk_exposure,
+            c.updated_at = datetime()
+        """
+        self._run(query, params)
+
+    def set_node_community(
+        self,
+        entity_ids: list[str],
+        community_id: str,
+    ) -> None:
+        """Attach every ``entity_ids`` member to ``community_id`` via IN_COMMUNITY.
+
+        The edge MERGE is keyed on the ``(Entity, Community)`` pair, so
+        re-running the same assignment is a no-op apart from refreshing
+        ``assigned_at``.
+        """
+        if not community_id:
+            raise Neo4jServiceError("set_node_community() requires community_id")
+        ids = [str(eid) for eid in (entity_ids or []) if eid]
+        if not ids:
+            return
+        # Validate the relationship type via the whitelist so this helper
+        # benefits from the same injection guards as upsert_relation.
+        quoted_rel = self._quote_rel("IN_COMMUNITY")
+        params: dict[str, Any] = {
+            "ids": ids,
+            "community_id": str(community_id),
+        }
+        query = f"""
+        UNWIND $ids AS id
+        MATCH (e:Entity {{id: id}})
+        MERGE (c:Community {{id: $community_id}})
+        MERGE (e)-[r:{quoted_rel}]->(c)
+        SET r.assigned_at = datetime()
+        """
+        self._run(query, params)
+
+    def community_summary_search(
+        self,
+        query_embedding: list[float],
+        k: int = 5,
+    ) -> list[dict[str, Any]]:
+        """Vector-search the ``community_embedding`` index for top-k summaries."""
+        if not isinstance(query_embedding, (list, tuple)) or not query_embedding:
+            raise Neo4jServiceError(
+                "community_summary_search() requires an embedding"
+            )
+        params: dict[str, Any] = {
+            "k": int(k),
+            "vec": [float(v) for v in query_embedding],
+        }
+        query = """
+        CALL db.index.vector.queryNodes('community_embedding', $k, $vec)
+        YIELD node, score
+        RETURN node.id AS id,
+               node.summary AS summary,
+               node.size AS size,
+               node.risk_exposure AS risk_exposure,
+               score
+        ORDER BY score DESC
+        """
+        return self._rows(query, params)
 
     def _verify_entity_exists(self, entity_id: str) -> bool:
         """Return True if an Entity node with this id is present in the graph."""
