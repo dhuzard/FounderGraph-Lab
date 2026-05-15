@@ -56,6 +56,7 @@ DEFAULT_ALLOWED_RELATIONSHIPS = {
     "MENTIONS",
     "SOURCE_OF",
     "DEPENDS_ON",
+    "SUPERSEDED_BY",
 }
 
 
@@ -144,6 +145,20 @@ class Neo4jService:
             "CREATE INDEX entity_validation_status IF NOT EXISTS FOR (e:Entity) ON (e.validation_status)",
             "CREATE INDEX entity_source_document_id IF NOT EXISTS FOR (e:Entity) ON (e.source_document_id)",
         ]
+        # Relationship-id indexes, one per ontology-declared predicate.  These
+        # speed up id lookups (e.g. supersede(), update-by-id flows) while
+        # keeping the triple as the natural MERGE key.
+        for rel_name in sorted(self.allowed_relationships):
+            try:
+                quoted = self._quote_rel(rel_name)
+            except Neo4jServiceError:
+                # Skip names that fail re-validation (defence in depth).
+                continue
+            # Index name is built from the validated, unquoted name.
+            statements.append(
+                f"CREATE INDEX rel_{self._validate_rel(rel_name)}_id IF NOT EXISTS "
+                f"FOR ()-[r:{quoted}]-() ON (r.id)"
+            )
         with self._session() as session:
             for statement in statements:
                 session.run(statement)
@@ -206,10 +221,19 @@ class Neo4jService:
 
         # IDs being written in this batch — relations may safely reference them.
         batch_ids = {str(e.get("id", "")) for e in entities if e.get("id")}
+        # Map of id → type for in-batch entities, so domain/range validation
+        # can consult them when the relation JSON does not declare subject/object types.
+        batch_types: dict[str, str] = {
+            str(e.get("id")): str(e.get("type") or e.get("label") or "")
+            for e in entities
+            if e.get("id")
+        }
 
         # Build and validate all relation ops (whitelist + domain/range) before
         # any DB access, so structural errors surface immediately.
-        validated_relation_ops = [self._relation_ops(r) for r in relations]
+        validated_relation_ops = [
+            self._relation_ops(r, known_entity_types=batch_types) for r in relations
+        ]
 
         # Verify endpoint existence now that whitelist/domain-range checks passed.
         for relation in relations:
@@ -255,12 +279,13 @@ class Neo4jService:
         entity_id = entity.get("id")
         if not entity_id:
             raise Neo4jServiceError("Validated entity requires id")
-        label = self._safe_label(entity.get("type") or entity.get("label") or "Entity")
+        bare_label = self._validate_label(entity.get("type") or entity.get("label") or "Entity")
+        quoted_label = f"`{bare_label}`"
         params: dict[str, Any] = {
             "id": str(entity_id),
             "name": entity.get("name") or entity.get("label", ""),
             "display_label": entity.get("label") or entity.get("name", ""),
-            "type": entity.get("type", label),
+            "type": entity.get("type", bare_label),
             "description": entity.get("description", ""),
             "evidence_grade": entity.get("evidence_grade"),
             "reviewer_confidence": entity.get("reviewer_confidence"),
@@ -274,9 +299,13 @@ class Neo4jService:
             "metadata_json": json_property(entity.get("metadata", {})),
             "status": validation_status(entity),
         }
+        # Bi-temporal: valid_from is stamped ON CREATE only so re-upserts do not
+        # rewrite history.  valid_to is left unset until supersede() is called.
         query = f"""
         MERGE (e:Entity {{id: $id}})
-        SET e:{label},
+        ON CREATE SET e.created_at = datetime(),
+                      e.valid_from = datetime()
+        SET e:{quoted_label},
             e.name = $name,
             e.label = $display_label,
             e.type = $type,
@@ -316,26 +345,38 @@ class Neo4jService:
             ops.append((link_query, link_params))
         return ops
 
-    def _relation_ops(self, relation: dict[str, Any]) -> list[tuple[str, dict[str, Any]]]:
+    def _relation_ops(
+        self,
+        relation: dict[str, Any],
+        known_entity_types: dict[str, str] | None = None,
+    ) -> list[tuple[str, dict[str, Any]]]:
         self._require_validated(relation, "relation")
         source_id = relation.get("source_entity_id") or relation.get("subject_id") or relation.get("source")
         target_id = relation.get("target_entity_id") or relation.get("object_id") or relation.get("target")
         if not source_id or not target_id:
             raise Neo4jServiceError("Validated relation requires source and target entity ids")
-        rel_type = self._safe_relationship(
+        bare_rel = self._validate_rel(
             relation.get("predicate") or relation.get("type") or relation.get("relation") or "RELATED_TO"
         )
+        quoted_rel = f"`{bare_rel}`"
         source_type = relation.get("subject_type") or relation.get("source_type")
         target_type = relation.get("object_type") or relation.get("target_type")
-        # TODO(domain-range): source_type/target_type should be inferred from the
-        # existing Entity node labels read from the graph rather than trusted from
-        # the relation JSON.  LLM-emitted subject_type/object_type are unreliable.
-        # See validate_relation() in ontology_validator.py.
-        if not self.ontology.validate_relation(rel_type, source_type, target_type):
+        # Phase 0.4 + the long-standing TODO: when the LLM omits subject_type /
+        # object_type, infer them from the existing Entity nodes (or the same
+        # batch in upsert_validated_knowledge).  Graph-derived types are far
+        # more trustworthy than LLM-emitted ones.
+        known_types = known_entity_types or {}
+        if not source_type:
+            source_type = known_types.get(str(source_id)) or self._lookup_entity_type(str(source_id))
+        if not target_type:
+            target_type = known_types.get(str(target_id)) or self._lookup_entity_type(str(target_id))
+        ok, reason = self.ontology.validate_relation_detail(bare_rel, source_type, target_type)
+        if not ok:
             raise Neo4jServiceError(
-                f"Relation {source_type} -{rel_type}-> {target_type} violates ontology domain/range constraints"
+                f"Relation {source_type} -{bare_rel}-> {target_type} violates ontology "
+                f"domain/range constraints: {reason}"
             )
-        relation_id = relation.get("id") or f"{source_id}:{rel_type}:{target_id}"
+        relation_id = relation.get("id") or f"{source_id}:{bare_rel}:{target_id}"
         params: dict[str, Any] = {
             "id": str(relation_id),
             "source_id": str(source_id),
@@ -350,10 +391,18 @@ class Neo4jService:
             "ontology_version": self.ontology.version,
             "status": validation_status(relation),
         }
+        # Edge identity is the (source, type, target) triple — ``id`` is a
+        # property, not a MERGE key, so two LLM extractions of the same fact
+        # with different surrogate ids collapse to one edge.  Bi-temporal:
+        # valid_from is stamped on creation only; valid_to is left unset.
         query = f"""
         MATCH (source:Entity {{id: $source_id}})
         MATCH (target:Entity {{id: $target_id}})
-        MERGE (source)-[r:{rel_type} {{id: $id}}]->(target)
+        MERGE (source)-[r:{quoted_rel}]->(target)
+        ON CREATE SET r.id = $id,
+                      r.created_at = datetime(),
+                      r.valid_from = datetime()
+        ON MATCH SET r.updated_at = datetime()
         SET r.source_snippet = $source_snippet,
             r.source_document_id = $source_document_id,
             r.source_file = $source_file,
@@ -466,6 +515,66 @@ class Neo4jService:
         """
         return self._rows(query, {"limit": int(limit)})
 
+    # ------------------------------------------------------------------
+    # Bi-temporal helpers (Phase 0.5)
+    # ------------------------------------------------------------------
+
+    def supersede(self, old_entity_id: str, new_entity_id: str) -> None:
+        """Mark ``old_entity_id`` as superseded by ``new_entity_id``.
+
+        Sets ``valid_to`` and ``superseded_by`` on the old entity and writes a
+        ``(old)-[:SUPERSEDED_BY {at: datetime()}]->(new)`` edge so the chain of
+        revisions is queryable from the graph itself.
+        """
+        if not old_entity_id or not new_entity_id:
+            raise Neo4jServiceError("supersede() requires both old_entity_id and new_entity_id")
+        if old_entity_id == new_entity_id:
+            raise Neo4jServiceError("supersede() refuses self-supersession")
+        quoted_rel = self._quote_rel("SUPERSEDED_BY")
+        params = {"old_id": str(old_entity_id), "new_id": str(new_entity_id)}
+        # Two statements so the FakeDriver / tests see both calls clearly and
+        # so a missing endpoint surfaces as a separate failure mode.
+        mark_query = """
+        MATCH (old:Entity {id: $old_id})
+        SET old.valid_to = datetime(),
+            old.superseded_by = $new_id
+        """
+        edge_query = f"""
+        MATCH (old:Entity {{id: $old_id}})
+        MATCH (new:Entity {{id: $new_id}})
+        MERGE (old)-[r:{quoted_rel}]->(new)
+        ON CREATE SET r.at = datetime()
+        """
+        self._run(mark_query, params)
+        self._run(edge_query, params)
+
+    def as_of(self, timestamp: str, label: str | None = None) -> list[dict[str, Any]]:
+        """Return entities valid at ``timestamp`` (ISO-8601 string).
+
+        An entity is "valid" if ``valid_from <= timestamp`` and either
+        ``valid_to`` is unset or ``timestamp < valid_to``.  Pass ``label`` to
+        restrict to a single subtype (e.g. ``"Assumption"``).
+        """
+        params: dict[str, Any] = {"ts": str(timestamp)}
+        if label is not None:
+            quoted = self._quote_label(label)
+            query = f"""
+            MATCH (e:Entity:{quoted})
+            WHERE e.valid_from <= datetime($ts)
+              AND (e.valid_to IS NULL OR datetime($ts) < e.valid_to)
+            RETURN e.id AS id, e.label AS label, e.name AS name, e.type AS type,
+                   e.valid_from AS valid_from, e.valid_to AS valid_to
+            """
+        else:
+            query = """
+            MATCH (e:Entity)
+            WHERE e.valid_from <= datetime($ts)
+              AND (e.valid_to IS NULL OR datetime($ts) < e.valid_to)
+            RETURN e.id AS id, e.label AS label, e.name AS name, e.type AS type,
+                   e.valid_from AS valid_from, e.valid_to AS valid_to
+            """
+        return self._rows(query, params)
+
     def _verify_entity_exists(self, entity_id: str) -> bool:
         """Return True if an Entity node with this id is present in the graph."""
         rows = self._rows(
@@ -473,6 +582,25 @@ class Neo4jService:
             {"id": str(entity_id)},
         )
         return bool(rows and rows[0].get("n", 0) > 0)
+
+    def _lookup_entity_type(self, entity_id: str) -> str | None:
+        """Read an entity's ``type`` property from the graph (best-effort).
+
+        Returns ``None`` if the entity is not present or the driver does not
+        support type lookups (e.g. simple test fakes).  Used by ``_relation_ops``
+        to infer domain/range when the LLM omits ``subject_type``/``object_type``.
+        """
+        try:
+            rows = self._rows(
+                "MATCH (e:Entity {id: $id}) RETURN e.type AS type LIMIT 1",
+                {"id": str(entity_id)},
+            )
+        except Exception:  # noqa: BLE001 — never let a lookup failure crash a write
+            return None
+        if not rows:
+            return None
+        value = rows[0].get("type")
+        return str(value) if value else None
 
     def _pre_check_relation_endpoints(
         self,
@@ -508,17 +636,51 @@ class Neo4jService:
                 f"Cannot create {rel_type} relation: missing target entity {target_id!r}"
             )
 
-    def _safe_label(self, value: str) -> str:
+    # ------------------------------------------------------------------
+    # Safe Cypher identifier helpers
+    #
+    # ``_validate_label`` / ``_validate_rel`` return the bare, validated
+    # identifier (suitable for parameter values and ``IN $list`` filters).
+    # ``_quote_label`` / ``_quote_rel`` wrap them in backticks for safe
+    # interpolation into Cypher statements.  These replace the older
+    # ``_safe_label`` / ``_safe_relationship`` helpers; both forms perform
+    # whitelist enforcement AND a hard re-validation against the safe
+    # identifier regex so unicode lookalikes and injections are rejected.
+    # ------------------------------------------------------------------
+
+    _SAFE_IDENT = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+
+    def _validate_label(self, value: str) -> str:
         label = normalize_label(value)
-        if not SAFE_LABEL.match(label) or label not in self.allowed_labels:
+        if not self._SAFE_IDENT.match(label) or label not in self.allowed_labels:
             raise Neo4jServiceError(f"Label is not whitelisted: {value}")
         return label
 
-    def _safe_relationship(self, value: str) -> str:
+    def _validate_rel(self, value: str) -> str:
         relationship = normalize_relationship_type(value)
-        if not SAFE_TOKEN.match(relationship) or relationship not in self.allowed_relationships:
+        if (
+            not self._SAFE_IDENT.match(relationship)
+            or relationship not in self.allowed_relationships
+        ):
             raise Neo4jServiceError(f"Relationship type is not whitelisted: {value}")
         return relationship
+
+    def _quote_label(self, value: str) -> str:
+        """Return a backtick-quoted, whitelist-validated label."""
+        return f"`{self._validate_label(value)}`"
+
+    def _quote_rel(self, value: str) -> str:
+        """Return a backtick-quoted, whitelist-validated relationship type."""
+        return f"`{self._validate_rel(value)}`"
+
+    # Back-compat shims — internal callers (graph_snapshot params) keep using
+    # these to obtain the bare identifier for ``IN $list`` filtering.  Tests
+    # may still call them directly.
+    def _safe_label(self, value: str) -> str:
+        return self._validate_label(value)
+
+    def _safe_relationship(self, value: str) -> str:
+        return self._validate_rel(value)
 
     @staticmethod
     def _require_validated(record: dict[str, Any], kind: str) -> None:

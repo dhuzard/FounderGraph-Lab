@@ -47,16 +47,19 @@ class FakeResult(list):
 
 
 class FakeSession:
-    """FakeSession that responds to entity-existence count queries.
+    """FakeSession that responds to entity-existence count and type queries.
 
-    Queries containing 'count(e) AS n' return {"n": 1} for IDs in
-    known_entity_ids and {"n": 0} for all others, so that the relation
-    endpoint pre-check works correctly in tests.
+    - Queries containing 'count(e) AS n' return {"n": 1} for IDs in
+      known_entity_ids and {"n": 0} for all others.
+    - Queries containing 'e.type AS type' return [{"type": <known>}] when
+      the id is in known_entity_types (used by _relation_ops to infer
+      domain/range when subject/object types are not supplied in JSON).
     """
 
-    def __init__(self, calls, known_entity_ids=None):
+    def __init__(self, calls, known_entity_ids=None, known_entity_types=None):
         self.calls = calls
         self._known: set[str] = set(known_entity_ids or [])
+        self._types: dict[str, str] = dict(known_entity_types or {})
 
     def __enter__(self):
         return self
@@ -70,6 +73,9 @@ class FakeSession:
         if "count(e) AS n" in query and "id" in p:
             n = 1 if p["id"] in self._known else 0
             return [{"n": n}]
+        if "e.type AS type" in query and "id" in p:
+            t = self._types.get(p["id"])
+            return [{"type": t}] if t else []
         return FakeResult()
 
     def execute_write(self, fn):
@@ -77,21 +83,29 @@ class FakeSession:
 
 
 class FakeDriver:
-    def __init__(self, known_entity_ids=None):
+    def __init__(self, known_entity_ids=None, known_entity_types=None):
         self.calls = []
         self._known: set[str] = set(known_entity_ids or [])
+        self._types: dict[str, str] = dict(known_entity_types or {})
 
     def session(self, **kwargs):
-        return FakeSession(self.calls, self._known)
+        return FakeSession(self.calls, self._known, self._types)
 
     def close(self):
         self.calls.append(("close", {}))
 
 
-def _service(extra_labels=None, extra_rels=None, known_entity_ids=None):
+def _service(extra_labels=None, extra_rels=None, known_entity_ids=None, known_entity_types=None):
     labels = {"Entity", "Assumption", "Evidence", "Risk", "Startup"} | (extra_labels or set())
     rels = {"RELATED_TO", "SUPPORTED_BY", "CONTRADICTED_BY", "THREATENS", "FOUNDED"} | (extra_rels or set())
-    return Neo4jService(driver=FakeDriver(known_entity_ids=known_entity_ids), allowed_labels=labels, allowed_relationships=rels)
+    return Neo4jService(
+        driver=FakeDriver(
+            known_entity_ids=known_entity_ids,
+            known_entity_types=known_entity_types,
+        ),
+        allowed_labels=labels,
+        allowed_relationships=rels,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -142,10 +156,14 @@ class TestOntologyDrift:
             "THREATENS should only be valid from Risk to Milestone"
         )
 
-    def test_validate_relation_permissive_when_type_unknown(self):
+    def test_validate_relation_rejects_untyped_endpoints(self):
+        # Phase 0.4: untyped endpoints must now fail validation (no permissive
+        # fallback) so LLM extractions cannot smuggle in unconstrained edges.
         loader = get_ontology()
-        # Unknown types → permissive (we don't have type info for old records)
-        assert loader.validate_relation("SUPPORTED_BY", None, None)
+        assert not loader.validate_relation("SUPPORTED_BY", None, None)
+        ok, reason = loader.validate_relation_detail("SUPPORTED_BY", None, None)
+        assert not ok
+        assert reason and "Untyped" in reason
 
     def test_missing_yaml_degrades_gracefully(self, tmp_path):
         loader = OntologyLoader(tmp_path / "nonexistent.yaml")
@@ -233,7 +251,11 @@ class TestIdempotentNeo4jWrites:
 
     def test_upsert_relation_twice_uses_merge_with_stable_id(self):
         # Endpoints e1 and e2 must exist in the graph for the pre-check to pass.
-        svc = _service(known_entity_ids={"e1", "e2"})
+        # Phase 0.4: endpoint types are required so the FakeDriver provides them.
+        svc = _service(
+            known_entity_ids={"e1", "e2"},
+            known_entity_types={"e1": "Assumption", "e2": "Evidence"},
+        )
         relation = {
             "id": "r-1",
             "source_entity_id": "e1",
@@ -421,3 +443,57 @@ class TestStableEntityId:
         import uuid
         result = stable_entity_id("doc-1", "Test", "Risk")
         uuid.UUID(result)  # raises ValueError if not a valid UUID
+
+
+# ---------------------------------------------------------------------------
+# 8. Phase 0.4 — untyped relation endpoints must fail validation
+# ---------------------------------------------------------------------------
+
+class TestUntypedRelationRejected:
+    def test_untyped_relation_rejected(self):
+        """OntologyValidator must record an 'invalid-domain-range' violation
+        when a relation references a source whose type is unknown (e.g. the
+        target entity is not in the validated batch)."""
+        from app.services.ontology_validator import OntologyValidator
+
+        validator = OntologyValidator(violations_path=Path("/tmp/_phase0_violations.json"))
+
+        # Only the source entity is staged; the target is unknown so its type
+        # cannot be inferred → domain/range gate fires.
+        entities = [{
+            "id": "e1",
+            "temporary_id": "e1",
+            "type": "Assumption",
+            "label": "An assumption",
+        }]
+        relations = [{
+            "id": "r1",
+            "source_entity_id": "e1",
+            "target_entity_id": "unknown-target",
+            "predicate": "SUPPORTED_BY",
+        }]
+
+        report = validator.validate(entities, relations)
+
+        # The relation must be rejected.
+        assert not any(
+            r.get("id") == "r1" for r in report.valid_relations
+        ), "Untyped-target relation must not survive validation"
+
+        # And a violation entry must be recorded with a clear reason.
+        rel_violations = [v for v in report.violations if v.kind == "relation"]
+        assert rel_violations, "Expected at least one relation violation"
+        assert any(v.rule == "invalid-domain-range" for v in rel_violations), (
+            f"Expected an invalid-domain-range violation, got {[v.rule for v in rel_violations]}"
+        )
+        # The detail should explain the untyped endpoint.
+        details = " ".join(v.detail for v in rel_violations)
+        assert "Untyped" in details or "not valid" in details
+
+    def test_loader_validate_relation_detail_returns_reason(self):
+        """validate_relation_detail must return (False, reason) when an endpoint
+        type is None — never silently accept it."""
+        loader = get_ontology()
+        ok, reason = loader.validate_relation_detail("SUPPORTED_BY", None, "Evidence")
+        assert not ok
+        assert reason and "Untyped" in reason

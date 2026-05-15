@@ -24,17 +24,17 @@ Legend: `[ ]` todo · `[~]` in progress · `[x]` done · `[!]` blocked
 
 ## Phase 0 — Foundation hardening
 
-- [ ] 0.1 Replace `_safe_label` / `_safe_relationship` with backtick-quoting helpers `_quote_label` / `_quote_rel` in `app/services/neo4j_service.py`; reject anything outside `^[A-Za-z_][A-Za-z0-9_]*$`; use everywhere a label/rel-type is interpolated (lines 279, 353-356).
-- [ ] 0.2 Change relationship MERGE to identify on `(source, type, target)` triple; demote `id` to property; set `created_at` / `updated_at` via `ON CREATE` / `ON MATCH`.
-- [ ] 0.3 Add relationship indexes in `ensure_schema` for ontology-declared predicates (auto-grown from YAML, not hard-coded).
-- [ ] 0.4 Remove permissive fallback in `OntologyLoader.validate_relation` (`ontology_validator.py:63-80`); untyped endpoints now fail validation.
-- [ ] 0.5 Add bi-temporal properties (`valid_from`, `valid_to`, `superseded_by`) on entities and relations; add `Neo4jService.supersede(old_id, new_id)`; add `as_of(timestamp)` query helper.
-- [ ] 0.6 Tests:
-  - [ ] `test_safe_quoting` — reject labels with spaces, semicolons, unicode, leading digits.
-  - [ ] `test_relation_idempotent_on_triple` — double-upsert different ids on same triple → 1 edge.
-  - [ ] `test_ensure_schema_relationship_indexes` — assert created.
-  - [ ] `test_untyped_relation_rejected` — validator returns False, violation recorded.
-  - [ ] `test_bi_temporal_supersede` — entity superseded, `as_of(past)` returns old, `as_of(now)` returns new.
+- [x] 0.1 Replace `_safe_label` / `_safe_relationship` with backtick-quoting helpers `_quote_label` / `_quote_rel` in `app/services/neo4j_service.py`; reject anything outside `^[A-Za-z_][A-Za-z0-9_]*$`; use everywhere a label/rel-type is interpolated (lines 279, 353-356).
+- [x] 0.2 Change relationship MERGE to identify on `(source, type, target)` triple; demote `id` to property; set `created_at` / `updated_at` via `ON CREATE` / `ON MATCH`.
+- [x] 0.3 Add relationship indexes in `ensure_schema` for ontology-declared predicates (auto-grown from YAML, not hard-coded).
+- [x] 0.4 Remove permissive fallback in `OntologyLoader.validate_relation` (`ontology_validator.py:63-80`); untyped endpoints now fail validation.
+- [x] 0.5 Add bi-temporal properties (`valid_from`, `valid_to`, `superseded_by`) on entities and relations; add `Neo4jService.supersede(old_id, new_id)`; add `as_of(timestamp)` query helper.
+- [x] 0.6 Tests:
+  - [x] `test_safe_quoting` — reject labels with spaces, semicolons, unicode, leading digits.
+  - [x] `test_relation_idempotent_on_triple` — double-upsert different ids on same triple → 1 edge.
+  - [x] `test_ensure_schema_relationship_indexes` — assert created.
+  - [x] `test_untyped_relation_rejected` — validator returns False, violation recorded.
+  - [x] `test_bi_temporal_supersede` — entity superseded, `as_of(past)` returns old, `as_of(now)` returns new.
 
 ## Phase 1 — LinkML as single source of truth
 

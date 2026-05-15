@@ -22,11 +22,21 @@ class FakeSession:
     Queries containing 'count(e) AS n' return {"n": 1} for IDs in
     known_entity_ids and {"n": 0} for all others, mirroring what a real
     Neo4j session would return for MATCH (e:Entity {id: $id}).
+
+    Queries containing 'e.type AS type' return ``[{"type": <known>}]`` when
+    the id has been pre-registered via ``known_entity_types`` (the type
+    inference path used by ``_relation_ops``).
     """
 
-    def __init__(self, calls: list, known_entity_ids: set | None = None):
+    def __init__(
+        self,
+        calls: list,
+        known_entity_ids: set | None = None,
+        known_entity_types: dict | None = None,
+    ):
         self.calls = calls
         self._known: set[str] = set(known_entity_ids or [])
+        self._types: dict[str, str] = dict(known_entity_types or {})
 
     def __enter__(self):
         return self
@@ -40,6 +50,9 @@ class FakeSession:
         if "count(e) AS n" in query and "id" in p:
             n = 1 if p["id"] in self._known else 0
             return [{"n": n}]
+        if "e.type AS type" in query and "id" in p:
+            t = self._types.get(p["id"])
+            return [{"type": t}] if t else []
         return FakeResult()
 
     def execute_write(self, fn):
@@ -49,20 +62,28 @@ class FakeSession:
 class FakeDriver:
     """FakeDriver whose sessions are aware of which entity IDs exist."""
 
-    def __init__(self, known_entity_ids: set | None = None):
+    def __init__(
+        self,
+        known_entity_ids: set | None = None,
+        known_entity_types: dict | None = None,
+    ):
         self.calls: list = []
         self._known: set[str] = set(known_entity_ids or [])
+        self._types: dict[str, str] = dict(known_entity_types or {})
 
     def session(self, **kwargs):
-        return FakeSession(self.calls, self._known)
+        return FakeSession(self.calls, self._known, self._types)
 
     def close(self):
         self.calls.append(("close", {}))
 
 
-def service(known_entity_ids: set | None = None):
+def service(known_entity_ids: set | None = None, known_entity_types: dict | None = None):
     return Neo4jService(
-        driver=FakeDriver(known_entity_ids=known_entity_ids),
+        driver=FakeDriver(
+            known_entity_ids=known_entity_ids,
+            known_entity_types=known_entity_types,
+        ),
         allowed_labels={"Entity", "Company"},
         allowed_relationships={"FOUNDED"},
     )
@@ -98,7 +119,8 @@ def test_upsert_entity_uses_parameterized_query_and_preserves_provenance():
     )
 
     query, params = graph.driver.calls[-1]
-    assert "SET e:Company" in query
+    # Phase 0.1: labels are now backtick-quoted for safe Cypher interpolation.
+    assert "SET e:`Company`" in query
     assert "$name" in query
     assert "Acme" not in query
     assert params["source_snippet"] == "Acme raised a seed round."
@@ -121,7 +143,11 @@ def test_refuses_non_whitelisted_relationship_type():
 
 def test_upsert_relation_uses_whitelisted_type_and_parameters():
     # Both endpoints must exist in the graph for the pre-check to pass.
-    graph = service(known_entity_ids={"founder1", "company1"})
+    # Phase 0.4: endpoint types are required, so the FakeDriver advertises them.
+    graph = service(
+        known_entity_ids={"founder1", "company1"},
+        known_entity_types={"founder1": "Founder", "company1": "Startup"},
+    )
     graph.upsert_relation(
         {
             "id": "r1",
@@ -135,7 +161,8 @@ def test_upsert_relation_uses_whitelisted_type_and_parameters():
     )
 
     query, params = graph.driver.calls[-1]
-    assert "[r:FOUNDED" in query
+    # Phase 0.1: relationship types are now backtick-quoted for safe interpolation.
+    assert "[r:`FOUNDED`" in query
     assert "$source_id" in query
     assert "founder1" not in query
     assert params["source_id"] == "founder1"
@@ -217,7 +244,9 @@ def test_mentions_link_uses_merge_not_match_for_document():
 def test_relation_write_raises_when_source_missing():
     """upsert_relation must raise Neo4jServiceError when the source entity
     does not exist in the graph."""
-    # Only target exists; source is absent.
+    # Only target exists; source is absent.  Endpoint types are still supplied
+    # explicitly so the (Phase 0.4) domain/range gate succeeds and the missing
+    # endpoint is the failing condition under test.
     graph = service(known_entity_ids={"company1"})
     with pytest.raises(Neo4jServiceError, match="missing source entity"):
         graph.upsert_relation({
@@ -225,6 +254,8 @@ def test_relation_write_raises_when_source_missing():
             "source_entity_id": "founder1",
             "target_entity_id": "company1",
             "type": "FOUNDED",
+            "subject_type": "Founder",
+            "object_type": "Startup",
             "status": "validated",
         })
 
@@ -240,13 +271,18 @@ def test_relation_write_raises_when_target_missing():
             "source_entity_id": "founder1",
             "target_entity_id": "company1",
             "type": "FOUNDED",
+            "subject_type": "Founder",
+            "object_type": "Startup",
             "status": "validated",
         })
 
 
 def test_valid_relation_write_succeeds_when_both_endpoints_exist():
     """upsert_relation must not raise when both endpoint entities are present."""
-    graph = service(known_entity_ids={"founder1", "company1"})
+    graph = service(
+        known_entity_ids={"founder1", "company1"},
+        known_entity_types={"founder1": "Founder", "company1": "Startup"},
+    )
     graph.upsert_relation({
         "id": "r1",
         "source_entity_id": "founder1",
@@ -277,6 +313,11 @@ def test_upsert_validated_knowledge_raises_before_write_when_endpoint_missing():
         "source_entity_id": "e1",
         "target_entity_id": "orphan",   # not in batch, not in DB
         "type": "RELATED_TO",
+        # Phase 0.4: types are required by domain/range validation; provide
+        # them explicitly so the failing condition under test is the missing
+        # endpoint, not the (separate) domain/range gate.
+        "subject_type": "Company",
+        "object_type": "Company",
         "status": "validated",
         "validation_status": "validated",
     }]
@@ -363,6 +404,9 @@ def test_reviewer_comment_in_relation_cypher():
         "source_entity_id": "e1",
         "target_entity_id": "e2",
         "type": "RELATED_TO",
+        # Phase 0.4: endpoint types are required by domain/range validation.
+        "subject_type": "Company",
+        "object_type": "Company",
         "status": "validated",
         "validation_status": "validated",
         "reviewer_comment": "Directional correctness verified manually.",
@@ -431,3 +475,116 @@ def test_get_unsupported_assumptions_returns_evidence_fields():
     assert "evidence_grade" in query
     assert "reviewer_confidence" in query
     assert "a.confidence AS confidence" not in query
+
+
+# ---------------------------------------------------------------------------
+# Phase 0.1 — safe Cypher identifier quoting
+# ---------------------------------------------------------------------------
+
+def test_safe_quoting():
+    """_quote_label / _quote_rel must reject malformed or non-whitelisted names
+    and return backtick-quoted forms for valid ones."""
+    svc = Neo4jService(
+        driver=FakeDriver(),
+        allowed_labels={"Entity", "Assumption"},
+        allowed_relationships={"SUPPORTED_BY"},
+    )
+
+    # --- labels ---
+    # Spaces, semicolons, leading digits, and unicode lookalikes are rejected.
+    # ``normalize_label`` strips spaces/semicolons, which then leaves a valid
+    # token shape but a value NOT in the allow-list, so it still raises.
+    with pytest.raises(Neo4jServiceError, match="Label is not whitelisted"):
+        svc._quote_label("foo bar")
+    with pytest.raises(Neo4jServiceError, match="Label is not whitelisted"):
+        svc._quote_label("foo; DROP")
+    with pytest.raises(Neo4jServiceError, match="Label is not whitelisted"):
+        svc._quote_label("1foo")
+    with pytest.raises(Neo4jServiceError, match="Label is not whitelisted"):
+        svc._quote_label("NotAllowedLabel")
+    # Valid whitelisted label is quoted with backticks.
+    assert svc._quote_label("Assumption") == "`Assumption`"
+
+    # --- relationships ---
+    with pytest.raises(Neo4jServiceError, match="not whitelisted"):
+        svc._quote_rel("foo bar")
+    with pytest.raises(Neo4jServiceError, match="not whitelisted"):
+        svc._quote_rel("foo; DROP")
+    with pytest.raises(Neo4jServiceError, match="not whitelisted"):
+        svc._quote_rel("1foo")
+    with pytest.raises(Neo4jServiceError, match="not whitelisted"):
+        svc._quote_rel("NOT_ALLOWED")
+    assert svc._quote_rel("SUPPORTED_BY") == "`SUPPORTED_BY`"
+
+
+# ---------------------------------------------------------------------------
+# Phase 0.2 — relationship MERGE on (source, type, target) triple
+# ---------------------------------------------------------------------------
+
+def test_relation_idempotent_on_triple():
+    """Upserting the same (source, type, target) triple with different surrogate
+    ids must produce identical MERGE shapes — the id is a property, not part
+    of the MERGE key, so the second upsert collapses onto the same edge."""
+    svc = service(
+        known_entity_ids={"e1", "e2"},
+        known_entity_types={"e1": "Assumption", "e2": "Evidence"},
+    )
+    # Allow SUPPORTED_BY for this test.
+    svc.allowed_relationships = svc.allowed_relationships | {"SUPPORTED_BY"}
+
+    base = {
+        "source_entity_id": "e1",
+        "target_entity_id": "e2",
+        "type": "SUPPORTED_BY",
+        "predicate": "SUPPORTED_BY",
+        "subject_type": "Assumption",
+        "object_type": "Evidence",
+        "status": "validated",
+        "validation_status": "validated",
+    }
+    svc.upsert_relation({**base, "id": "rel-A"})
+    svc.upsert_relation({**base, "id": "rel-B"})
+
+    merge_queries = [
+        q for q, _ in svc.driver.calls
+        if isinstance(q, str) and "MERGE (source)-[r:" in q
+    ]
+    assert len(merge_queries) == 2, "Both upserts must emit a MERGE-on-triple"
+    for q in merge_queries:
+        # Identity is the triple — no ``{id: $id}`` inline filter on the edge.
+        assert "[r:`SUPPORTED_BY`]" in q
+        assert "MERGE (source)-[r:`SUPPORTED_BY`]->(target)" in q
+        assert "MERGE (source)-[r:`SUPPORTED_BY` {id:" not in q
+        # id is set as a property ON CREATE, not as a MERGE key.
+        assert "ON CREATE SET r.id = $id" in q
+
+
+# ---------------------------------------------------------------------------
+# Phase 0.3 — relationship indexes emitted by ensure_schema
+# ---------------------------------------------------------------------------
+
+def test_ensure_schema_relationship_indexes():
+    """ensure_schema must issue one ``CREATE INDEX rel_<NAME>_id ...`` per
+    allowed relationship, in addition to the node constraints/indexes."""
+    allowed_rels = {"SUPPORTED_BY", "CONTRADICTED_BY", "THREATENS"}
+    svc = Neo4jService(
+        driver=FakeDriver(),
+        allowed_labels={"Entity", "Assumption"},
+        allowed_relationships=allowed_rels,
+    )
+    svc.ensure_schema()
+
+    rel_index_queries = [
+        q for q, _ in svc.driver.calls
+        if isinstance(q, str) and q.startswith("CREATE INDEX rel_") and "_id IF NOT EXISTS" in q
+    ]
+    assert len(rel_index_queries) == len(allowed_rels), (
+        f"Expected one rel index per allowed relationship, got {rel_index_queries}"
+    )
+    rel_index_names = {q.split()[2] for q in rel_index_queries}
+    expected_names = {f"rel_{name}_id" for name in allowed_rels}
+    assert rel_index_names == expected_names
+    # Backtick-quoted rel name inside ``FOR ()-[r:`NAME`]-()``.
+    for q in rel_index_queries:
+        assert "FOR ()-[r:`" in q
+        assert "]-() ON (r.id)" in q

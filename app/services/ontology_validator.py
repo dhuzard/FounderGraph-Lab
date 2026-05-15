@@ -66,18 +66,45 @@ class OntologyLoader:
         source_type: str | None,
         target_type: str | None,
     ) -> bool:
+        """Strict domain/range validation.
+
+        Untyped endpoints are no longer accepted — callers must supply both
+        ``source_type`` and ``target_type``.  Use ``validate_relation_detail``
+        to obtain a structured reason when validation fails.
+        """
+        ok, _ = self.validate_relation_detail(rel_type, source_type, target_type)
+        return ok
+
+    def validate_relation_detail(
+        self,
+        rel_type: str,
+        source_type: str | None,
+        target_type: str | None,
+    ) -> tuple[bool, str | None]:
+        """Return (is_valid, violation_reason).
+
+        ``violation_reason`` is ``None`` on success; otherwise a short string
+        the caller may surface to the user / staging report.
+        """
         if not source_type or not target_type:
-            return True
+            return False, (
+                f"Untyped endpoint(s) for predicate '{rel_type}': "
+                f"source_type={source_type!r}, target_type={target_type!r}"
+            )
         allowed_pairs = self.domain_range_map.get(rel_type)
         if not allowed_pairs:
-            return True
+            # Predicate is whitelisted but has no domain/range registered —
+            # accept rather than block (e.g. legacy/test predicates).
+            return True, None
         permissive = {"Entity", "Document"}
         for subj, obj in allowed_pairs:
             if subj in permissive or obj in permissive:
-                return True
+                return True, None
             if source_type == subj and target_type == obj:
-                return True
-        return False
+                return True, None
+        return False, (
+            f"{source_type} -{rel_type}-> {target_type} is not an allowed domain/range pair"
+        )
 
     def _load(self) -> dict[str, Any]:
         if not self._path.exists():
@@ -229,10 +256,13 @@ class OntologyValidator:
         if predicate and src and tgt:
             source_type = entity_types_by_id.get(src)
             target_type = entity_types_by_id.get(tgt)
-            if not self._ontology.validate_relation(str(predicate), source_type, target_type):
+            ok, reason = self._ontology.validate_relation_detail(
+                str(predicate), source_type, target_type
+            )
+            if not ok:
                 issues.append((
                     "invalid-domain-range",
-                    f"Predicate '{predicate}' is not valid for {source_type} -> {target_type}",
+                    reason or f"Predicate '{predicate}' is not valid for {source_type} -> {target_type}",
                 ))
 
         return issues
