@@ -10,6 +10,13 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable
 
+from app.services.citation_verifier import (
+    RetrievalContext,
+    VerifiedAudit,
+    build_context,
+    parse_audit,
+    verify,
+)
 from app.services.qdrant_service import DOCUMENT_COLLECTION, QdrantService
 
 
@@ -114,8 +121,27 @@ def _format_snippets(search: dict[str, Any]) -> str:
     for result in search.get("results", []):
         payload = result.payload
         source = payload.get("source_path") or payload.get("document_id") or result.id
-        snippets.append(f"- score={result.score:.3f} source={source}: {result.text[:900]}")
+        chunk_id = payload.get("chunk_id") or payload.get("source_chunk_id") or result.id
+        snippets.append(
+            f"- chunk_id={chunk_id} score={result.score:.3f} source={source}: {result.text[:900]}"
+        )
     return "\n".join(snippets) if snippets else "No vector snippets found."
+
+
+def _snippet_dicts(search: dict[str, Any]) -> list[dict[str, Any]]:
+    """Adapt Qdrant SearchResult objects to plain dicts for ``build_context``."""
+    if not search.get("available"):
+        return []
+    out: list[dict[str, Any]] = []
+    for result in search.get("results", []) or []:
+        payload = getattr(result, "payload", None) or {}
+        out.append(
+            {
+                "id": getattr(result, "id", None),
+                "payload": payload,
+            }
+        )
+    return out
 
 
 def _save_audit(slug: str, title: str, body: str) -> Path:
@@ -166,11 +192,11 @@ def run_agent_workflow(
     snippets = QdrantService().semantic_search(query, collection=DOCUMENT_COLLECTION, limit=6)
 
     if on_progress:
-        on_progress({"phase": "synthesis", "message": "Generating Markdown audit with Ollama"})
+        on_progress({"phase": "synthesis", "message": "Generating audit with Ollama"})
     ontology_section = f"\nOntology schema (use these entity classes and relation types when naming findings):\n{ontology}\n" if ontology else ""
     synthesis_prompt = f"""{prompt}
 {ontology_section}
-Use only the graph context and evidence snippets below. Do not invent facts. When referencing entities, use the ontology class names (e.g. Assumption, Evidence, Risk, Experiment, Decision, Milestone).
+Use only the graph context and evidence snippets below. Do not invent facts. When referencing entities, use the ontology class names (e.g. Assumption, Evidence, Risk, Experiment, Decision, Milestone). Cite entity ids exactly as they appear in the graph context (the values shown for ``id``, ``a.id``, ``b.id``) and chunk ids exactly as they appear in the evidence snippets (the ``chunk_id=...`` token before each snippet body).
 
 Graph context:
 {_format_rows(graph.get("rows", []))}
@@ -178,17 +204,38 @@ Graph context:
 Evidence snippets:
 {_format_snippets(snippets)}
 
-Return a concise Markdown audit with findings, evidence, risks, and next actions.
+Respond with the JSON object specified in the prompt above. Do not wrap it in Markdown fences or prose.
 """
     generated = _ollama_generate(synthesis_prompt)
     body = generated["text"] if generated.get("available") and generated.get("text") else _fallback_markdown(title, prompt, graph, snippets)
+
+    # --- Phase 5: parse JSON output + verify citations against the retrieval context.
+    context = build_context(graph.get("rows") or [], _snippet_dicts(snippets))
+    parsed_json, parse_error = parse_audit(body)
+    if parsed_json is not None:
+        structured = verify(parsed_json, context)
+    else:
+        structured = VerifiedAudit(
+            summary="",
+            verified_findings=[],
+            ungrounded_findings=[],
+            raw_json=None,
+            parse_error=parse_error,
+        )
 
     if on_progress:
         on_progress({"phase": "save", "message": "Saving audit Markdown"})
     path = _save_audit(slug, title, body)
     if on_progress:
         on_progress({"phase": "done", "message": f"Saved audit to {path.name}"})
-    return {"path": str(path), "graph": graph, "snippets": snippets, "ollama": generated}
+    return {
+        "path": str(path),
+        "graph": graph,
+        "snippets": snippets,
+        "ollama": generated,
+        "structured": structured,
+        "context": context,
+    }
 
 
 def pitch_audit(on_progress: Callable[[dict[str, Any]], None] | None = None) -> dict[str, Any]:

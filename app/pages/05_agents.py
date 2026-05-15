@@ -9,7 +9,81 @@ except ImportError:  # pragma: no cover
     st = None
 
 from app.services.agents import AUDIT_DIR, WORKFLOWS
+from app.services.citation_verifier import Finding, VerifiedAudit
 from app.services.qdrant_service import index_startup_knowledge
+
+
+def _finding_row(finding: Finding) -> dict[str, object]:
+    return {
+        "claim": finding.claim,
+        "severity": finding.severity,
+        "confidence": round(float(finding.confidence), 3),
+        "verified": "✓" if finding.verified else "⚠ ungrounded",
+        "entity_ids": ", ".join(finding.evidence_entity_ids),
+        "chunk_ids": ", ".join(finding.source_chunk_ids),
+        "missing_ids": ", ".join(finding.ungrounded_ids),
+    }
+
+
+def _render_verified_audit(structured: VerifiedAudit | None) -> None:
+    """Render the structured Phase-5 audit alongside the legacy Markdown view."""
+    if structured is None:
+        return
+
+    if structured.parse_error:
+        st.warning(
+            "LLM output not in JSON format — showing legacy Markdown only. "
+            f"Parser said: {structured.parse_error}"
+        )
+        return
+
+    if structured.summary:
+        st.markdown("### Summary")
+        st.write(structured.summary)
+
+    verified = structured.verified_findings or []
+    ungrounded = structured.ungrounded_findings or []
+    total = len(verified) + len(ungrounded)
+
+    metric_col1, metric_col2, metric_col3 = st.columns(3)
+    metric_col1.metric("Findings", total)
+    metric_col2.metric("Verified", len(verified))
+    metric_col3.metric("Ungrounded", len(ungrounded))
+
+    if total == 0:
+        st.info("No findings returned by the model.")
+        return
+
+    st.markdown("### Findings")
+    rows = [_finding_row(f) for f in verified] + [_finding_row(f) for f in ungrounded]
+    st.dataframe(
+        rows,
+        use_container_width=True,
+        hide_index=True,
+        column_config={
+            "claim": st.column_config.TextColumn("Claim", width="large"),
+            "severity": st.column_config.TextColumn("Severity"),
+            "confidence": st.column_config.NumberColumn("Confidence", format="%.2f"),
+            "verified": st.column_config.TextColumn(
+                "Verified",
+                help="Verified = every cited id is present in the retrieved context.",
+            ),
+            "entity_ids": st.column_config.TextColumn("Entity citations"),
+            "chunk_ids": st.column_config.TextColumn("Chunk citations"),
+            "missing_ids": st.column_config.TextColumn(
+                "Missing ids",
+                help="Cited ids that were NOT in the retrieval context.",
+            ),
+        },
+    )
+
+    if ungrounded:
+        with st.expander(f"⚠ {len(ungrounded)} ungrounded finding(s) — details", expanded=False):
+            for finding in ungrounded:
+                missing = ", ".join(finding.ungrounded_ids) or "(no citations supplied)"
+                st.markdown(
+                    f"- **{finding.claim}** — missing: `{missing}`"
+                )
 
 
 def _list_previous_audits(slug: str) -> list[Path]:
@@ -215,7 +289,13 @@ def main() -> None:
         audit_path = Path(result["path"])
         st.success(f"Audit saved: `{audit_path.name}`")
         audit_text = audit_path.read_text(encoding="utf-8") if audit_path.exists() else ""
-        st.markdown(audit_text)
+
+        # Phase 5: render structured findings (verified vs. ungrounded) when available.
+        structured = result.get("structured")
+        _render_verified_audit(structured)
+
+        with st.expander("Raw LLM output (legacy Markdown view)", expanded=structured is None or (structured and structured.parse_error)):
+            st.markdown(audit_text)
 
         # --- Previous audits ---
         slug = audit_path.stem.split("-", 1)[-1] if "-" in audit_path.stem else audit_path.stem

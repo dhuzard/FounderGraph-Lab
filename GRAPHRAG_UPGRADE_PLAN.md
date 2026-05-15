@@ -84,10 +84,10 @@ Legend: `[ ]` todo · `[~]` in progress · `[x]` done · `[!]` blocked
 
 ## Phase 5 — Grounded citations & hallucination filter
 
-- [ ] 5.1 Rewrite `app/prompts/*_audit.md` to require JSON output (`{summary, findings:[{claim, evidence_entity_ids, source_chunk_ids, confidence}]}`).
-- [ ] 5.2 Create `app/services/citation_verifier.py` that drops/flags findings whose cited ids aren't in the retrieved context.
-- [ ] 5.3 Update `app/pages/05_agents.py` rendering — show verified vs. ungrounded findings with badges.
-- [ ] 5.4 Tests `tests/test_citation_verifier.py` — fake LLM hallucinates an entity id → filtered.
+- [x] 5.1 Rewrite `app/prompts/*_audit.md` to require JSON output (`{summary, findings:[{claim, evidence_entity_ids, source_chunk_ids, confidence}]}`).
+- [x] 5.2 Create `app/services/citation_verifier.py` that drops/flags findings whose cited ids aren't in the retrieved context.
+- [x] 5.3 Update `app/pages/05_agents.py` rendering — show verified vs. ungrounded findings with badges.
+- [x] 5.4 Tests `tests/test_citation_verifier.py` — fake LLM hallucinates an entity id → filtered.
 
 ## Phase 6 — Entity resolution (SAME_AS first)
 
