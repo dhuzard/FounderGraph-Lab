@@ -109,11 +109,11 @@ Legend: `[ ]` todo · `[~]` in progress · `[x]` done · `[!]` blocked
 
 ## Phase 8 — Polish, MCP, docs
 
-- [ ] 8.1 Temporal filters in discovery + Graph Explorer (`as_of(date)` slider, deadline windows).
-- [ ] 8.2 `PROFILE` telemetry expander on agent results.
-- [ ] 8.3 MCP servers in `app/mcp/` (`neo4j_server.py`, `qdrant_server.py`) exposing `query_graph`, `semantic_search`, `discovery_query`.
-- [ ] 8.4 README rewrite framed around five pillars: constrained extraction, deterministic discovery, ontology-guarded text2Cypher, grounded citations, bi-temporal audit trail.
-- [ ] 8.5 Sample dataset upgrade — deliberately contradictory pitch deck under `sample_data/` so discovery agents surface drama on first run.
+- [x] 8.1 Temporal filters in discovery + Graph Explorer (`as_of(date)` slider, deadline windows).
+- [x] 8.2 `PROFILE` telemetry expander on agent results.
+- [x] 8.3 MCP servers in `app/mcp/` (`neo4j_server.py`, `qdrant_server.py`) exposing `query_graph`, `semantic_search`, `discovery_query`.
+- [x] 8.4 README rewrite framed around five pillars: constrained extraction, deterministic discovery, ontology-guarded text2Cypher, grounded citations, bi-temporal audit trail.
+- [x] 8.5 Sample dataset upgrade — deliberately contradictory pitch deck under `sample_data/` so discovery agents surface drama on first run.
 
 ---
 

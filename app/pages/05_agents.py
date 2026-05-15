@@ -14,6 +14,55 @@ from app.services.cypher_planner import CypherPlanner
 from app.services.qdrant_service import index_startup_knowledge
 
 
+def _profile_cypher(
+    service, cypher: str, params: dict
+) -> tuple[str, list[dict]]:
+    """Run ``PROFILE <cypher>`` and return a textual plan + step-level dbHits.
+
+    Phase 8.2 telemetry: opens a read session, prefixes ``PROFILE`` to the
+    generated Cypher, and walks ``Result.consume().profile`` recursively for
+    operator-level dbHits.  Returns ("", []) if Neo4j is unavailable or does
+    not expose a plan (e.g. driver mock under tests).
+    """
+    try:
+        from neo4j import READ_ACCESS
+    except Exception:  # pragma: no cover - neo4j is a hard dep but be defensive
+        return "", []
+
+    steps: list[dict] = []
+
+    def _walk(node, depth: int = 0) -> None:
+        if node is None:
+            return
+        op = getattr(node, "operator_type", None) or getattr(node, "operatorType", None)
+        args = getattr(node, "arguments", {}) or {}
+        steps.append(
+            {
+                "depth": depth,
+                "operator": str(op or "?"),
+                "dbHits": int(getattr(node, "db_hits", 0) or args.get("DbHits", 0) or 0),
+                "rows": int(getattr(node, "rows", 0) or args.get("Rows", 0) or 0),
+            }
+        )
+        for child in getattr(node, "children", []) or []:
+            _walk(child, depth + 1)
+
+    try:
+        with service.driver.session(default_access_mode=READ_ACCESS) as session:
+            result = session.run(f"PROFILE {cypher}", dict(params))
+            # Drain the rows so the server attaches the profile to the summary.
+            for _ in result:
+                pass
+            summary = result.consume()
+            profile = getattr(summary, "profile", None)
+            _walk(profile)
+            plan_text = str(profile) if profile is not None else ""
+    except Exception as exc:  # noqa: BLE001 - surface a "unavailable" badge instead
+        return f"Plan unavailable: {exc}", []
+
+    return plan_text, steps
+
+
 def _finding_row(finding: Finding) -> dict[str, object]:
     return {
         "claim": finding.claim,
@@ -125,8 +174,18 @@ def main() -> None:
             "e.g. Which high-criticality assumptions have no supporting evidence?"
         ),
     )
-    run_planner = st.button("Plan & run", key="ask_the_graph_run")
+    planner_cols = st.columns([1, 1, 2])
+    with planner_cols[0]:
+        run_planner = st.button("Plan & run", key="ask_the_graph_run")
+    with planner_cols[1]:
+        show_profile = st.checkbox(
+            "Show query plan",
+            value=False,
+            key="ask_the_graph_profile",
+            help="Run PROFILE on the generated Cypher and report dbHits per step.",
+        )
     if run_planner and question.strip():
+        neo4j_service = None
         try:
             from app.services.llm_service import OllamaLLMService
             from app.services.neo4j_service import Neo4jService
@@ -169,6 +228,23 @@ def main() -> None:
                         st.dataframe(rows, use_container_width=True, hide_index=True)
                     else:
                         st.caption("No rows.")
+
+                if show_profile and neo4j_service is not None:
+                    plan_text, plan_steps = _profile_cypher(
+                        neo4j_service, result.plan.cypher, result.plan.params or {}
+                    )
+                    with st.expander("Query plan / dbHits", expanded=False):
+                        if not plan_text and not plan_steps:
+                            st.caption("Plan unavailable.")
+                        else:
+                            if plan_steps:
+                                st.dataframe(
+                                    plan_steps,
+                                    use_container_width=True,
+                                    hide_index=True,
+                                )
+                            if plan_text:
+                                st.code(plan_text, language="text")
     elif run_planner:
         st.warning("Enter a question first.")
 

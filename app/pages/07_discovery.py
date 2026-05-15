@@ -9,6 +9,8 @@ involved.
 
 from __future__ import annotations
 
+from datetime import date, datetime
+
 try:
     import streamlit as st
 except ImportError:  # pragma: no cover - streamlit only required in app context
@@ -69,9 +71,28 @@ def main() -> None:
             value=100,
             step=10,
         )
+        valid_at_date = st.date_input(
+            "Valid at",
+            value=date.today(),
+            help=(
+                "Bi-temporal slice: discovery queries are restricted to "
+                "entities valid at this timestamp."
+            ),
+        )
+        apply_temporal = st.checkbox(
+            "Apply temporal filter",
+            value=False,
+            help="When off, queries run without a $valid_at parameter (full graph).",
+        )
         st.caption(
             "Each query runs in READ access mode and is parameterized with $limit."
         )
+
+    valid_at_iso = (
+        datetime.combine(valid_at_date, datetime.min.time()).isoformat()
+        if apply_temporal
+        else None
+    )
 
     for query in queries:
         with st.container():
@@ -101,6 +122,7 @@ def main() -> None:
                             query.name,
                             service.driver,
                             limit=limit,
+                            valid_at=valid_at_iso,
                         )
                     except Exception as exc:  # noqa: BLE001
                         st.error(f"Query failed: {exc}")
