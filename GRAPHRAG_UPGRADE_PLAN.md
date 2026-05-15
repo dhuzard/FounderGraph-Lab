@@ -117,8 +117,68 @@ Legend: `[ ]` todo · `[~]` in progress · `[x]` done · `[!]` blocked
 
 ---
 
-## Open follow-ups (parking lot)
+## Quality check (post-Phase-8)
 
-- Decide eventual retirement of Qdrant once Neo4j vector index proves out for entity + community summaries.
-- Decide whether to enforce Ollama JSON-mode with `outlines` / `instructor` if local models drift.
-- Decide whether `SAME_AS` should ever auto-promote to hard merge after N independent confirmations.
+Run on commit `ca7861d`:
+
+- [x] `python -m pytest tests/ -q` — **240 passed**, 0 failed, 0 skipped.
+- [x] `python -m compileall app/ scripts/ tests/` — clean, no syntax errors.
+- [x] Import smoke test for every Phase 0–8 service module — clean.
+- [x] LinkML drift check — `python scripts/generate_ontology_artifacts.py` regenerates identical artifacts (no `git diff` on `app/ontology/generated/`).
+- [x] `git status` clean, branch up to date with `origin/claude/streamlit-neo4j-knowledge-graph-vpPyO`.
+- [x] In-code TODOs in services — only 1 contextual note in `neo4j_service.py:457` (Phase 0.4 inference path), no orphan FIXMEs / HACKs.
+- [x] LoC: services 8 077 lines, tests 5 379 lines (~0.67 test-to-code ratio).
+
+---
+
+## Phase 9 — Logical next steps
+
+Ordered by impact-to-effort. None of these are blockers; the system is shippable as-is for an illustration repo.
+
+### Ontology completeness
+
+- [ ] 9.1 Add `MITIGATES` predicate (`Experiment → Risk`) to `startup_ontology.linkml.yaml`; regenerate artifacts; update `discovery_queries.risked_milestones` to use `MITIGATES` instead of the current `TESTS` substitution (see comment in `app/services/discovery_queries.py:153`). Drop the substitution note.
+- [ ] 9.2 Audit `app/services/ontology_service.py` — it predates LinkML. Either retire it (move `init_ontology.py` wizard onto the LinkML loader) or document its scope so future contributors don't add drift.
+
+### Demo readiness
+
+- [ ] 9.3 End-to-end smoke run on `sample_data/contradictory_*.md`: upload → extract → validate → discover. Capture screenshots of the Discovery page showing the planted contradictions, and the Agents page showing grounded citations. Embed in `README.md` or `STEP_BY_STEP_USER_GUIDE.md`.
+- [ ] 9.4 Add a `make demo` target that wipes `data/` then loads the contradictory sample, so a fresh clone shows drama in <2 min.
+- [ ] 9.5 30-second screencast per pillar (5 total) for the README.
+
+### CI / DevEx
+
+- [ ] 9.6 Wire `make generate-check` into `.github/workflows/` so a PR that edits the LinkML YAML without regenerating artifacts fails CI.
+- [ ] 9.7 Add a GitHub Actions job that runs `pytest` + the LinkML drift check on every push.
+- [ ] 9.8 Pre-commit hook for `make generate-check` so the failure surfaces locally before CI.
+
+### Carry-overs from the original `TODO.md`
+
+These were `🟡` / `🟢` before the GraphRAG upgrade and remain open:
+
+- [ ] 9.9 Dedupe `status` vs `validation_status` fields on `KnowledgeEntity`; pick one, normalize on load.
+- [ ] 9.10 Delete stale Qdrant chunks by `document_id` filter before re-upserting on document re-upload.
+- [ ] 9.11 Per-document staging index — `data/staging/{doc_id}/` subdirectory layout instead of flat files.
+- [ ] 9.12 Confidence-stratified review UI — fast-approve lane / standard editor / detailed diff view.
+- [ ] 9.13 Replace PyVis graph explorer with `streamlit-agraph` for click-to-inspect + type filtering.
+- [ ] 9.14 Expand `assumption_audit.md` and `pitch_audit.md` prompt texts (still short).
+
+### Hardening
+
+- [ ] 9.15 Live-Neo4j integration test (currently all driver use is `FakeDriver`). A small `docker-compose -f docker-compose.test.yml` running real Neo4j 5.20 + APOC, with one end-to-end happy-path test gated behind `pytest -m integration`.
+- [ ] 9.16 Benchmark the hybrid retriever on a 10k-node graph — confirm the α/β/γ defaults in `app/config.py` still produce sensible rankings. Tune if the supported-vs-unsupported separation drops below 0.1.
+- [ ] 9.17 Strict JSON-mode for Ollama via `outlines` or `instructor` — current `parse_audit` has a balanced-brace fallback; making it strict would simplify the path and surface model drift faster.
+- [ ] 9.18 Add `MCP` server runtime test using a real `mcp` SDK install (gated behind an extras dep).
+
+### Parking lot decisions still open
+
+- [ ] 9.19 Decide eventual retirement of Qdrant once Neo4j vector index proves out for entity + community summaries (chunks would migrate to `(:Chunk {embedding})` nodes).
+- [ ] 9.20 Decide whether `SAME_AS` should ever auto-promote to hard merge after N independent confirmations.
+- [ ] 9.21 Decide whether to add provenance edges from `Community` to the underlying audit run (so global summaries can be re-derived).
+
+### Stretch — beyond the illustration scope
+
+- [ ] 9.22 `Graphiti` (Zep AI) evaluation as a managed alternative to the hand-rolled bi-temporal layer.
+- [ ] 9.23 Multi-tenant data isolation (per-startup namespace) — currently single-tenant.
+- [ ] 9.24 Replace Ollama as the default LLM with `claude-haiku-4-5-20251001` for the planner / verifier hot paths (cheaper, faster, JSON-mode native). Keep Ollama for embedding so local-first remains intact.
+
