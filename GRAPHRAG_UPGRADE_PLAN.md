@@ -65,12 +65,12 @@ Legend: `[ ]` todo · `[~]` in progress · `[x]` done · `[!]` blocked
 
 ## Phase 3 — Schema-aware text2Cypher
 
-- [ ] 3.1 Create `app/services/cypher_planner.py` with `plan(question) -> CypherPlan` and validation gate (label/rel/domain-range whitelist, read-only enforcement, query timeout, one repair attempt).
-- [ ] 3.2 Create `app/prompts/cypher_plan.md` — ontology view + NL→Cypher examples + forbidden tokens.
-- [ ] 3.3 Wire into `app/pages/05_agents.py` — "Ask the graph" box, expander shows generated Cypher + rationale.
-- [ ] 3.4 Tests `tests/test_cypher_planner.py`:
-  - [ ] Golden — natural language → expected Cypher shape.
-  - [ ] Adversarial — DELETE / off-ontology label / injection rejected.
+- [x] 3.1 Create `app/services/cypher_planner.py` with `plan(question) -> CypherPlan` and validation gate (label/rel/domain-range whitelist, read-only enforcement, query timeout, one repair attempt).
+- [x] 3.2 Create `app/prompts/cypher_plan.md` — ontology view + NL→Cypher examples + forbidden tokens.
+- [x] 3.3 Wire into `app/pages/05_agents.py` — "Ask the graph" box, expander shows generated Cypher + rationale.
+- [x] 3.4 Tests `tests/test_cypher_planner.py`:
+  - [x] Golden — natural language → expected Cypher shape.
+  - [x] Adversarial — DELETE / off-ontology label / injection rejected.
 
 ## Phase 4 — Native Neo4j vectors + hybrid retrieval
 

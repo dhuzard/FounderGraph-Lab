@@ -10,6 +10,7 @@ except ImportError:  # pragma: no cover
 
 from app.services.agents import AUDIT_DIR, WORKFLOWS
 from app.services.citation_verifier import Finding, VerifiedAudit
+from app.services.cypher_planner import CypherPlanner
 from app.services.qdrant_service import index_startup_knowledge
 
 
@@ -101,6 +102,77 @@ def main() -> None:
     st.set_page_config(page_title="FounderGraph-Lab Agents", layout="wide")
     st.title("Agent Audits")
     st.caption("Read-only workflows combine Neo4j context, Qdrant snippets, and Ollama synthesis when available.")
+
+    # ------------------------------------------------------------------
+    # Phase 3: Ask the graph (schema-aware text2Cypher)
+    # ------------------------------------------------------------------
+    # The planner translates a natural-language question into a single
+    # read-only Cypher query, validates labels/relationships/domain-range
+    # against the live ontology, auto-injects ``LIMIT $max_rows``, and
+    # runs the query through a READ_ACCESS session.  All other sections
+    # on this page (verified-audit rendering, workflow runner, previous
+    # audits) are unchanged.
+    st.subheader("Ask the graph (text → Cypher)")
+    st.caption(
+        "Translate a question into a read-only Cypher query. The planner is "
+        "ontology-guarded: off-schema labels or relationships, write clauses, "
+        "and injection-style substrings are rejected before execution."
+    )
+    question = st.text_input(
+        "Question",
+        key="ask_the_graph_question",
+        placeholder=(
+            "e.g. Which high-criticality assumptions have no supporting evidence?"
+        ),
+    )
+    run_planner = st.button("Plan & run", key="ask_the_graph_run")
+    if run_planner and question.strip():
+        try:
+            from app.services.llm_service import OllamaLLMService
+            from app.services.neo4j_service import Neo4jService
+
+            neo4j_service = Neo4jService()
+            llm_service = OllamaLLMService()
+            planner = CypherPlanner(neo4j_service, llm_service)
+            result = planner.ask(question.strip())
+        except Exception as exc:  # noqa: BLE001 — surface any wiring error to the UI
+            st.error(f"Planner unavailable: {exc}")
+            result = None
+
+        if result is not None:
+            if result.repair_attempted:
+                st.info(
+                    "One repair pass was performed after the first plan failed "
+                    "ontology validation."
+                )
+            if result.plan is None:
+                st.error("Planner could not produce a valid query.")
+                violation_rows = [
+                    {"kind": v.kind, "detail": v.detail} for v in result.violations
+                ]
+                st.dataframe(
+                    violation_rows,
+                    use_container_width=True,
+                    hide_index=True,
+                )
+            else:
+                with st.expander("Generated Cypher", expanded=True):
+                    st.code(result.plan.cypher, language="cypher")
+                    if result.plan.params:
+                        st.caption("Parameters:")
+                        st.json(result.plan.params)
+                with st.expander("Rationale", expanded=False):
+                    st.write(result.plan.rationale or "(no rationale)")
+                with st.expander("Results", expanded=True):
+                    rows = result.rows or []
+                    if rows:
+                        st.dataframe(rows, use_container_width=True, hide_index=True)
+                    else:
+                        st.caption("No rows.")
+    elif run_planner:
+        st.warning("Enter a question first.")
+
+    st.divider()
 
     # --- Agent catalog ---
     _WORKFLOW_CATALOG = [
