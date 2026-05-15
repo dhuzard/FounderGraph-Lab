@@ -74,13 +74,13 @@ Legend: `[ ]` todo · `[~]` in progress · `[x]` done · `[!]` blocked
 
 ## Phase 4 — Native Neo4j vectors + hybrid retrieval
 
-- [ ] 4.1 Extend `ensure_schema` to create `VECTOR INDEX entity_embedding` (and a community-summary index later in Phase 7). Chunks stay in Qdrant.
-- [ ] 4.2 Materialize entity-summary embeddings on `(:Entity)` nodes; backfill script in `scripts/`.
-- [ ] 4.3 Create `app/services/hybrid_retriever.py` with three-stage retrieval (vector seed → typed expansion → graph-aware re-rank). Surface weights in `app/config.py`.
-- [ ] 4.4 Swap each agent in `app/services/agents.py` to use `hybrid_retriever.retrieve(...)`; keep static discovery queries from Phase 2 unchanged.
-- [ ] 4.5 Tests:
-  - [ ] `test_hybrid_retriever_ordering` — supported assumptions outrank unsupported ones for an investor-style question.
-  - [ ] `test_entity_vector_index_created`.
+- [x] 4.1 Extend `ensure_schema` to create `VECTOR INDEX entity_embedding` (and a community-summary index later in Phase 7). Chunks stay in Qdrant.
+- [x] 4.2 Materialize entity-summary embeddings on `(:Entity)` nodes; backfill script in `scripts/`.
+- [x] 4.3 Create `app/services/hybrid_retriever.py` with three-stage retrieval (vector seed → typed expansion → graph-aware re-rank). Surface weights in `app/config.py`.
+- [x] 4.4 Swap each agent in `app/services/agents.py` to use `hybrid_retriever.retrieve(...)`; keep static discovery queries from Phase 2 unchanged.
+- [x] 4.5 Tests:
+  - [x] `test_hybrid_retriever_ordering` — supported assumptions outrank unsupported ones for an investor-style question.
+  - [x] `test_entity_vector_index_created`.
 
 ## Phase 5 — Grounded citations & hallucination filter
 

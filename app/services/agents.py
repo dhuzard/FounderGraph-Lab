@@ -17,6 +17,7 @@ from app.services.citation_verifier import (
     parse_audit,
     verify,
 )
+from app.services.hybrid_retriever import HybridResult, HybridRetriever, RetrievedItem
 from app.services.qdrant_service import DOCUMENT_COLLECTION, QdrantService
 
 
@@ -144,6 +145,80 @@ def _snippet_dicts(search: dict[str, Any]) -> list[dict[str, Any]]:
     return out
 
 
+# ---------------------------------------------------------------------------
+# Phase 4: hybrid retriever wiring
+# ---------------------------------------------------------------------------
+
+
+def _build_hybrid_retriever() -> HybridRetriever | None:
+    """Construct a HybridRetriever using live services when configured.
+
+    Returns ``None`` if Neo4j env vars are missing, the neo4j driver is not
+    installed, or any wiring step fails -- callers must tolerate that and
+    fall back to the discovery-Cypher-only pathway.  This keeps the agents
+    runnable in CI / unit-test environments without external services.
+    """
+    uri = os.getenv("NEO4J_URI")
+    password = os.getenv("NEO4J_PASSWORD")
+    if not uri or not password:
+        return None
+    try:
+        from app.services.neo4j_service import Neo4jConfig, Neo4jService
+
+        cfg = Neo4jConfig.from_env()
+        neo4j_service = Neo4jService(config=cfg)
+        qdrant_service = QdrantService()
+        return HybridRetriever(
+            neo4j_service=neo4j_service,
+            qdrant_service=qdrant_service,
+            embed_fn=qdrant_service.embed,
+        )
+    except Exception:  # pragma: no cover -- depends on external services
+        return None
+
+
+def _format_hybrid_items(items: list[RetrievedItem]) -> str:
+    """Render hybrid retrieval items into a compact, citation-friendly block.
+
+    The format mirrors the existing graph-row / snippet renderers so the LLM
+    prompt stays consistent: a leading marker (``[entity]`` / ``[chunk]``),
+    a stable id, the score, and a short text.  We cap each item's text so a
+    runaway expansion doesn't blow the prompt budget.
+    """
+    if not items:
+        return "No hybrid retrieval results."
+    lines: list[str] = []
+    for item in items[:30]:
+        ident = item.id or "<unknown>"
+        text = (item.text or "").replace("\n", " ").strip()
+        if len(text) > 600:
+            text = text[:600] + "..."
+        if item.kind == "entity":
+            lines.append(f"- [entity] id={ident} score={item.score:.3f} :: {text}")
+        else:
+            lines.append(f"- [chunk] chunk_id={ident} score={item.score:.3f} :: {text}")
+    return "\n".join(lines)
+
+
+def _merge_contexts(
+    primary: RetrievalContext,
+    hybrid: HybridResult | None,
+) -> RetrievalContext:
+    """Union the discovery-Cypher context with the hybrid retrieval context.
+
+    The verifier whitelists EVERY id the LLM was shown -- so cited ids
+    coming from either source must be honoured.  Frozensets compose
+    naturally; we simply take the union and rebuild a frozen context.
+    """
+    if hybrid is None:
+        return primary
+    hybrid_ctx = hybrid.to_retrieval_context()
+    return RetrievalContext(
+        entity_ids=frozenset(primary.entity_ids | hybrid_ctx.entity_ids),
+        chunk_ids=frozenset(primary.chunk_ids | hybrid_ctx.chunk_ids),
+    )
+
+
 def _save_audit(slug: str, title: str, body: str) -> Path:
     AUDIT_DIR.mkdir(parents=True, exist_ok=True)
     timestamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
@@ -177,7 +252,24 @@ def run_agent_workflow(
     query: str,
     cypher: str,
     on_progress: Callable[[dict[str, Any]], None] | None = None,
+    *,
+    hybrid_question: str | None = None,
+    ontology_filter: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
+    """Run one audit end-to-end.
+
+    Phase 4 contract:
+    * ``cypher`` remains the AUTHORITATIVE discovery-style query (e.g. the
+      Phase 2 "unsupported assumptions" walk).  Its rows are always shown
+      to the LLM as graph context.
+    * ``hybrid_question`` (when supplied along with a working Neo4j + Qdrant)
+      drives the new :class:`HybridRetriever`, which seeds entity vectors +
+      Qdrant chunks, expands the graph by 1-2 hops, and ranks the result.
+      Hybrid output supplements -- it does not replace -- the discovery rows
+      in the prompt and is unioned into the citation context.
+    * ``ontology_filter`` constrains the entity vector seed to a label set
+      (drops off-ontology candidates before they pollute the prompt).
+    """
     if on_progress:
         on_progress({"phase": "prompt", "message": "Loading prompt and ontology context"})
     prompt = _read_prompt(prompt_file)
@@ -191,16 +283,42 @@ def run_agent_workflow(
         on_progress({"phase": "vectors", "message": "Searching Qdrant evidence snippets"})
     snippets = QdrantService().semantic_search(query, collection=DOCUMENT_COLLECTION, limit=6)
 
+    # --- Phase 4: optional hybrid retrieval pass.  Best-effort -- absence of
+    # Neo4j or Qdrant degrades to the discovery-rows-only path that Phase 5
+    # already covered.
+    hybrid: HybridResult | None = None
+    if hybrid_question:
+        if on_progress:
+            on_progress(
+                {"phase": "hybrid", "message": "Running hybrid graph + vector retrieval"}
+            )
+        retriever = _build_hybrid_retriever()
+        if retriever is not None:
+            try:
+                hybrid = retriever.retrieve(
+                    hybrid_question, ontology_filter=ontology_filter
+                )
+            except Exception:  # pragma: no cover -- defensive
+                hybrid = None
+
     if on_progress:
         on_progress({"phase": "synthesis", "message": "Generating audit with Ollama"})
     ontology_section = f"\nOntology schema (use these entity classes and relation types when naming findings):\n{ontology}\n" if ontology else ""
+    hybrid_section = ""
+    if hybrid is not None and hybrid.items:
+        hybrid_section = (
+            "\nHybrid retrieval (vector-seeded + graph-expanded; cite "
+            "``id`` for entities and ``chunk_id`` for chunks):\n"
+            + _format_hybrid_items(hybrid.items)
+            + "\n"
+        )
     synthesis_prompt = f"""{prompt}
 {ontology_section}
-Use only the graph context and evidence snippets below. Do not invent facts. When referencing entities, use the ontology class names (e.g. Assumption, Evidence, Risk, Experiment, Decision, Milestone). Cite entity ids exactly as they appear in the graph context (the values shown for ``id``, ``a.id``, ``b.id``) and chunk ids exactly as they appear in the evidence snippets (the ``chunk_id=...`` token before each snippet body).
+Use only the graph context, hybrid retrieval items, and evidence snippets below. Do not invent facts. When referencing entities, use the ontology class names (e.g. Assumption, Evidence, Risk, Experiment, Decision, Milestone). Cite entity ids exactly as they appear in the graph context (the values shown for ``id``, ``a.id``, ``b.id``) and chunk ids exactly as they appear in the evidence snippets (the ``chunk_id=...`` token before each snippet body).
 
 Graph context:
 {_format_rows(graph.get("rows", []))}
-
+{hybrid_section}
 Evidence snippets:
 {_format_snippets(snippets)}
 
@@ -210,7 +328,11 @@ Respond with the JSON object specified in the prompt above. Do not wrap it in Ma
     body = generated["text"] if generated.get("available") and generated.get("text") else _fallback_markdown(title, prompt, graph, snippets)
 
     # --- Phase 5: parse JSON output + verify citations against the retrieval context.
-    context = build_context(graph.get("rows") or [], _snippet_dicts(snippets))
+    #     Phase 4: union the hybrid retrieval ids into the allowed-citation set
+    #     so the verifier accepts items the LLM legitimately saw via the new
+    #     retrieval path.
+    base_context = build_context(graph.get("rows") or [], _snippet_dicts(snippets))
+    context = _merge_contexts(base_context, hybrid)
     parsed_json, parse_error = parse_audit(body)
     if parsed_json is not None:
         structured = verify(parsed_json, context)
@@ -235,6 +357,7 @@ Respond with the JSON object specified in the prompt above. Do not wrap it in Ma
         "ollama": generated,
         "structured": structured,
         "context": context,
+        "hybrid": hybrid,
     }
 
 
@@ -249,6 +372,10 @@ def pitch_audit(on_progress: Callable[[dict[str, Any]], None] | None = None) -> 
             "WHERE n:Startup OR n:Founder OR n:Market OR n:Assumption OR n:Evidence "
             "RETURN labels(n) AS labels, properties(n) AS properties LIMIT 50"
         ),
+        hybrid_question="Pitch audit: clarity and evidence for an investor pitch",
+        ontology_filter={
+            "labels": ["Startup", "Founder", "Market", "Assumption", "Evidence"],
+        },
         on_progress=on_progress,
     )
 
@@ -266,6 +393,13 @@ def unsupported_assumption_audit(on_progress: Callable[[dict[str, Any]], None] |
             "a.evidence_grade AS evidence_grade, a.reviewer_confidence AS reviewer_confidence, "
             "a.source_file AS source_file, a.source_snippet AS source_snippet"
         ),
+        hybrid_question=(
+            "Surface assumptions whose supporting evidence is missing, weak, "
+            "or contradicted, and propose validation experiments."
+        ),
+        ontology_filter={
+            "labels": ["Assumption", "Evidence", "Experiment", "Risk"],
+        },
         on_progress=on_progress,
     )
 
@@ -290,6 +424,13 @@ def assumption_audit(on_progress: Callable[[dict[str, Any]], None] | None = None
             "collect(DISTINCT exp.label) AS experiments, "
             "collect(DISTINCT r.label) AS related_risks LIMIT 75"
         ),
+        hybrid_question=(
+            "Audit assumption strength: which assumptions lack supporting "
+            "evidence, which are contradicted, and which risks threaten them?"
+        ),
+        ontology_filter={
+            "labels": ["Assumption", "Evidence", "Experiment", "Risk"],
+        },
         on_progress=on_progress,
     )
 
@@ -305,6 +446,13 @@ def customer_discovery(on_progress: Callable[[dict[str, Any]], None] | None = No
             "OPTIONAL MATCH (f:Entity:ProductFeature)-[:ADDRESSES]->(p) "
             "RETURN s.label AS segment, p.label AS problem, collect(f.label) AS linked_features"
         ),
+        hybrid_question=(
+            "Customer discovery: segments, the problems they face, and the "
+            "product features that address those problems."
+        ),
+        ontology_filter={
+            "labels": ["CustomerSegment", "Problem", "ProductFeature"],
+        },
         on_progress=on_progress,
     )
 
@@ -332,6 +480,20 @@ def due_diligence_checklist(on_progress: Callable[[dict[str, Any]], None] | None
             "collect(DISTINCT rc.label) AS regulatory_constraints, "
             "collect(DISTINCT fh.label) AS financial_hypotheses LIMIT 60"
         ),
+        hybrid_question=(
+            "Due diligence checklist: missing evidence, exposed risks, IP "
+            "assets, regulatory constraints, and financial hypotheses."
+        ),
+        ontology_filter={
+            "labels": [
+                "Assumption",
+                "Evidence",
+                "Risk",
+                "IPAsset",
+                "RegulatoryConstraint",
+                "FinancialHypothesis",
+            ],
+        },
         on_progress=on_progress,
     )
 
@@ -355,6 +517,13 @@ def next_experiment_suggestions(on_progress: Callable[[dict[str, Any]], None] | 
             "collect(DISTINCT ev.label) AS generated_evidence, "
             "collect(DISTINCT e.label) AS existing_evidence LIMIT 75"
         ),
+        hybrid_question=(
+            "Next experiments: untested critical assumptions paired with "
+            "evidence gaps and risk exposure."
+        ),
+        ontology_filter={
+            "labels": ["Assumption", "Experiment", "Evidence", "Risk"],
+        },
         on_progress=on_progress,
     )
 
@@ -370,6 +539,13 @@ def grant_strategy(on_progress: Callable[[dict[str, Any]], None] | None = None) 
             "WHERE n:Startup OR n:Grant OR n:Milestone OR n:Impact OR n:Market "
             "RETURN labels(n) AS labels, properties(n) AS properties LIMIT 50"
         ),
+        hybrid_question=(
+            "Grant strategy: align startup milestones and market impact with "
+            "the calls being targeted."
+        ),
+        ontology_filter={
+            "labels": ["Startup", "Grant", "Milestone", "Impact", "Market"],
+        },
         on_progress=on_progress,
     )
 
@@ -396,6 +572,13 @@ def decision_intelligence(on_progress: Callable[[dict[str, Any]], None] | None =
             "collect(DISTINCT {risk: r.label, milestone: m.label, probability: r.probability, impact: r.impact, mitigation: r.mitigation}) AS risk_exposure, "
             "collect(DISTINCT {decision: d.label, basis: de.label}) AS prior_decisions LIMIT 60"
         ),
+        hybrid_question=(
+            "Decision intelligence: which strategic decisions are supported "
+            "by evidence, which assumptions block them, and which risks remain?"
+        ),
+        ontology_filter={
+            "labels": ["Assumption", "Evidence", "Risk", "Experiment", "Decision"],
+        },
         on_progress=on_progress,
     )
 

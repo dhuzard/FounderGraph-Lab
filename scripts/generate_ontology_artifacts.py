@@ -198,6 +198,15 @@ def generate_cypher(schema_path: Path, out_path: Path) -> None:
     """
     from linkml_runtime.utils.schemaview import SchemaView
 
+    # Phase 4: read the embedding dimensionality from the central config so the
+    # generated vector index DDL stays in lock-step with the Ollama embed model.
+    # Neo4j refuses to accept ``vector.dimensions`` as a parameter, so we MUST
+    # bake the integer into the DDL text -- which is why the generator owns it.
+    try:
+        from app.config import EMBEDDING_DIMS
+    except Exception:  # pragma: no cover -- defensive when running outside the venv
+        EMBEDDING_DIMS = 768
+
     sv = SchemaView(str(schema_path))
 
     lines: list[str] = []
@@ -259,6 +268,33 @@ def generate_cypher(schema_path: Path, out_path: Path) -> None:
         lines.append(
             f"CREATE INDEX rel_{rel}_id IF NOT EXISTS FOR ()-[r:`{rel}`]-() ON (r.id);"
         )
+
+    # 4. Phase 4: native Neo4j vector index for entity-summary embeddings.
+    # Chunk vectors stay in Qdrant; this index covers the entity tier only.
+    # ``vector.dimensions`` is hardcoded because Neo4j does not accept it as a
+    # parameter on index creation; if the embedding model changes, bump
+    # ``EMBEDDING_DIMS`` in ``app/config.py`` and re-run ``make generate``.
+    # Older Neo4j servers (<5.11) lack vector indexes -- ``ensure_schema``
+    # tolerates the resulting failure with a logged warning so the rest of
+    # the schema still applies.
+    lines.append("")
+    lines.append("// --- Native vector indexes (Phase 4 / Phase 7) ---")
+    dims = int(EMBEDDING_DIMS)
+    lines.append(
+        "CREATE VECTOR INDEX entity_embedding IF NOT EXISTS FOR (e:Entity) ON e.embedding "
+        "OPTIONS {indexConfig: {`vector.dimensions`: "
+        + str(dims)
+        + ", `vector.similarity_function`: 'cosine'}};"
+    )
+    # Phase 7 stub -- community summaries are not yet materialised, so we keep
+    # the DDL commented out.  Uncomment (and re-run ``make generate``) once
+    # ``app/services/community_service.py`` is in place.
+    lines.append(
+        "// CREATE VECTOR INDEX community_embedding IF NOT EXISTS FOR (c:Community) ON c.embedding "
+        "OPTIONS {indexConfig: {`vector.dimensions`: "
+        + str(dims)
+        + ", `vector.similarity_function`: 'cosine'}};"
+    )
 
     out_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 

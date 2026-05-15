@@ -32,3 +32,7 @@ CREATE INDEX rel_SUPPORTED_BY_id IF NOT EXISTS FOR ()-[r:`SUPPORTED_BY`]-() ON (
 CREATE INDEX rel_TARGETS_id IF NOT EXISTS FOR ()-[r:`TARGETS`]-() ON (r.id);
 CREATE INDEX rel_TESTS_id IF NOT EXISTS FOR ()-[r:`TESTS`]-() ON (r.id);
 CREATE INDEX rel_THREATENS_id IF NOT EXISTS FOR ()-[r:`THREATENS`]-() ON (r.id);
+
+// --- Native vector indexes (Phase 4 / Phase 7) ---
+CREATE VECTOR INDEX entity_embedding IF NOT EXISTS FOR (e:Entity) ON e.embedding OPTIONS {indexConfig: {`vector.dimensions`: 768, `vector.similarity_function`: 'cosine'}};
+// CREATE VECTOR INDEX community_embedding IF NOT EXISTS FOR (c:Community) ON c.embedding OPTIONS {indexConfig: {`vector.dimensions`: 768, `vector.similarity_function`: 'cosine'}};

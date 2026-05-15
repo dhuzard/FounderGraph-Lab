@@ -158,6 +158,11 @@ class Neo4jService:
         so tests can inject a narrower whitelist (e.g. a single relationship)
         without rewriting the generated artifact.
 
+        Phase 4: ``CREATE VECTOR INDEX`` statements are executed inside a
+        ``try/except`` so older Neo4j servers (<5.11) that lack the vector
+        index syntax degrade to "graph search only" mode rather than aborting
+        the whole schema migration.
+
         Raises ``Neo4jServiceError`` with an actionable message when the
         generated file is missing -- the caller should run ``make generate``.
         """
@@ -175,7 +180,25 @@ class Neo4jService:
         statements = self._parse_cypher_ddl(text)
         with self._session() as session:
             for statement in statements:
-                session.run(statement)
+                is_vector = "VECTOR INDEX" in statement.upper()
+                if is_vector:
+                    # Vector index DDL was added by Neo4j 5.11.  On older
+                    # servers (or community installs without the feature) the
+                    # statement raises; degrade to a warning instead of
+                    # aborting the whole schema migration so the rest of the
+                    # constraints/indexes still apply.
+                    try:
+                        session.run(statement)
+                    except Exception as exc:  # noqa: BLE001 -- driver-specific errors
+                        import logging
+
+                        logging.getLogger(__name__).warning(
+                            "Skipping VECTOR INDEX DDL -- vector search disabled "
+                            "(this Neo4j may be older than 5.11): %s",
+                            exc,
+                        )
+                else:
+                    session.run(statement)
 
     def _parse_cypher_ddl(self, text: str) -> list[str]:
         """Split the DDL file into runnable statements, filtered by the
@@ -639,6 +662,133 @@ class Neo4jService:
             RETURN e.id AS id, e.label AS label, e.name AS name, e.type AS type,
                    e.valid_from AS valid_from, e.valid_to AS valid_to
             """
+        return self._rows(query, params)
+
+    # ------------------------------------------------------------------
+    # Native vector search (Phase 4)
+    #
+    # Chunk-level vectors continue to live in Qdrant; what we keep in Neo4j
+    # is one embedding per validated entity (a "summary" embedding) so the
+    # hybrid retriever can seed graph traversal from semantic neighbours
+    # without leaving the graph database.
+    # ------------------------------------------------------------------
+
+    def upsert_entity_embedding(
+        self,
+        entity_id: str,
+        embedding: list[float],
+        model: str | None = None,
+    ) -> None:
+        """Attach a summary embedding to an existing ``(:Entity)`` node.
+
+        ``embedding`` is the vector returned by the active embed function
+        (typically ``QdrantService.embed`` against Ollama).  We store the
+        model name and a timestamp alongside so a future model rotation can
+        be detected and re-embedded selectively.
+        """
+        if not entity_id:
+            raise Neo4jServiceError("upsert_entity_embedding() requires entity_id")
+        if not isinstance(embedding, (list, tuple)) or not embedding:
+            raise Neo4jServiceError(
+                "upsert_entity_embedding() requires a non-empty embedding vector"
+            )
+        params: dict[str, Any] = {
+            "id": str(entity_id),
+            "embedding": [float(v) for v in embedding],
+            "model": str(model or os.getenv("EMBEDDING_MODEL", "nomic-embed-text")),
+        }
+        query = """
+        MATCH (e:Entity {id: $id})
+        SET e.embedding = $embedding,
+            e.embedding_model = $model,
+            e.embedding_updated_at = datetime()
+        """
+        self._run(query, params)
+
+    def vector_search_entities(
+        self,
+        query_embedding: list[float],
+        k: int = 10,
+        label_filter: str | None = None,
+    ) -> list[dict[str, Any]]:
+        """Return the top-``k`` entities by cosine similarity to ``query_embedding``.
+
+        The query routes through the native ``entity_embedding`` vector index
+        (created by ``ensure_schema``).  When ``label_filter`` is supplied,
+        results are restricted to nodes carrying that label -- the label is
+        validated and backtick-quoted via ``_quote_label`` to keep injection
+        impossible.
+        """
+        if not isinstance(query_embedding, (list, tuple)) or not query_embedding:
+            raise Neo4jServiceError("vector_search_entities() requires an embedding")
+        params: dict[str, Any] = {
+            "k": int(k),
+            "vec": [float(v) for v in query_embedding],
+        }
+        if label_filter:
+            quoted = self._quote_label(label_filter)
+            query = f"""
+            CALL db.index.vector.queryNodes('entity_embedding', $k, $vec)
+            YIELD node, score
+            WHERE node:{quoted}
+            RETURN node.id AS id, node.name AS name, node.type AS type, score
+            ORDER BY score DESC
+            """
+        else:
+            query = """
+            CALL db.index.vector.queryNodes('entity_embedding', $k, $vec)
+            YIELD node, score
+            RETURN node.id AS id, node.name AS name, node.type AS type, score
+            ORDER BY score DESC
+            """
+        return self._rows(query, params)
+
+    def get_neighborhood(
+        self,
+        entity_ids: list[str],
+        hops: int = 1,
+        allowed_relationships: list[str] | None = None,
+    ) -> list[dict[str, Any]]:
+        """Return outgoing/incoming relationships within ``hops`` of any seed.
+
+        Uses APOC's ``apoc.path.subgraphAll`` to expand without duplicating
+        node-vs-relationship traversal logic.  The output is a flat list of
+        ``{source_id, source_name, type, target_id, target_name}`` rows so
+        callers can fold the neighbourhood into the re-rank scorer without
+        constructing graph objects.
+
+        ``allowed_relationships`` -- when provided -- is enforced against the
+        ontology whitelist (so a stray non-ontology predicate cannot leak into
+        the relationshipFilter string) and joined with ``|`` per APOC syntax.
+        """
+        if not entity_ids:
+            return []
+        seeds = [str(eid) for eid in entity_ids if eid]
+        if not seeds:
+            return []
+        rel_filter = ""
+        if allowed_relationships:
+            # Validate every requested predicate; the resulting tokens are the
+            # whitelisted bare identifiers (no backticks), which is what APOC
+            # expects in ``relationshipFilter``.
+            validated = [self._validate_rel(r) for r in allowed_relationships]
+            # APOC accepts ``REL1|REL2`` for "any direction over either type".
+            rel_filter = "|".join(validated)
+        params: dict[str, Any] = {
+            "ids": seeds,
+            "hops": int(hops),
+            "rel_filter": rel_filter,
+        }
+        query = """
+        MATCH (e:Entity) WHERE e.id IN $ids
+        CALL apoc.path.subgraphAll(e, {maxLevel: $hops, relationshipFilter: $rel_filter})
+        YIELD nodes, relationships
+        UNWIND relationships AS r
+        WITH startNode(r) AS s, endNode(r) AS t, r
+        RETURN s.id AS source_id, s.name AS source_name,
+               type(r) AS type,
+               t.id AS target_id, t.name AS target_name
+        """
         return self._rows(query, params)
 
     # ------------------------------------------------------------------
