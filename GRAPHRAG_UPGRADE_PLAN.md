@@ -38,17 +38,17 @@ Legend: `[ ]` todo · `[~]` in progress · `[x]` done · `[!]` blocked
 
 ## Phase 1 — LinkML as single source of truth
 
-- [ ] 1.1 Author `app/ontology/startup_ontology.linkml.yaml` mirroring `startup_ontology.yaml`.
-- [ ] 1.2 Add `scripts/generate_ontology_artifacts.py` that runs `gen-pydantic`, `gen-json-schema`, `gen-shacl`, plus a custom Cypher DDL generator.
-- [ ] 1.3 Add `make generate` target; wire pre-commit / CI check to fail on stale artifacts.
-- [ ] 1.4 Replace `app/models/entity.py`, `relation.py`, `document.py` with the generated Pydantic v2 models (or re-export).
-- [ ] 1.5 Rewrite `ensure_schema` to load DDL from `app/ontology/generated/cypher_constraints.cypher`.
-- [ ] 1.6 Rewrite `OntologyLoader` / `OntologyValidator` to consume generated JSON-Schema + SHACL.
-- [ ] 1.7 Integrate pySHACL deterministic gate; serialize staging graph to RDF, run shapes, write violations to `data/staging/shacl_violations.json`.
-- [ ] 1.8 Tests:
-  - [ ] `test_linkml_artifacts_in_sync` — regenerate and diff against committed; CI fails on drift.
-  - [ ] `test_pyshacl_violation` — Assumption missing `criticality` shape fails.
-  - [ ] All existing ontology tests still green.
+- [x] 1.1 Author `app/ontology/startup_ontology.linkml.yaml` mirroring `startup_ontology.yaml`.
+- [x] 1.2 Add `scripts/generate_ontology_artifacts.py` that runs `gen-pydantic`, `gen-json-schema`, `gen-shacl`, plus a custom Cypher DDL generator.
+- [x] 1.3 Add `make generate` target; wire pre-commit / CI check to fail on stale artifacts.
+- [x] 1.4 Replace `app/models/entity.py`, `relation.py`, `document.py` with the generated Pydantic v2 models (or re-export).
+- [x] 1.5 Rewrite `ensure_schema` to load DDL from `app/ontology/generated/cypher_constraints.cypher`.
+- [x] 1.6 Rewrite `OntologyLoader` / `OntologyValidator` to consume generated JSON-Schema + SHACL.
+- [x] 1.7 Integrate pySHACL deterministic gate; serialize staging graph to RDF, run shapes, write violations to `data/staging/shacl_violations.json`.
+- [x] 1.8 Tests:
+  - [x] `test_linkml_artifacts_in_sync` — regenerate and diff against committed; CI fails on drift.
+  - [x] `test_pyshacl_violation` — Assumption missing `criticality` shape fails.
+  - [x] All existing ontology tests still green.
 
 ## Phase 2 — Ontology-driven discovery queries
 

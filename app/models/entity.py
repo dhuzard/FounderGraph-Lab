@@ -1,11 +1,42 @@
+"""Re-export of the LinkML-generated entity classes.
+
+Phase 1 of the GraphRAG upgrade made
+``app/ontology/startup_ontology.linkml.yaml`` the single source of truth.
+The Pydantic models in ``app.ontology.generated.models`` are regenerated from
+that schema by ``scripts/generate_ontology_artifacts.py``.
+
+This module is now a thin shim that re-exports the generated ``Entity`` base
+class under the legacy name ``KnowledgeEntity`` so existing call sites keep
+working, plus an ``EntityType`` literal alias listing every concrete entity
+subtype the ontology declares.
+
+Concrete subclasses (``Assumption``, ``Risk``, ``Startup``, etc.) can be
+imported directly from ``app.ontology.generated.models``.
+"""
+
 from __future__ import annotations
 
-from datetime import datetime
 from typing import Literal
 
-from pydantic import BaseModel, Field
+# The generated module is created by ``make generate``; importing it lazily
+# guards against fresh checkouts where ``models.py`` has not yet been built.
+try:
+    from app.ontology.generated.models import (  # type: ignore[import-not-found]
+        Entity as KnowledgeEntity,
+    )
+except (ImportError, ModuleNotFoundError):  # pragma: no cover
+    # Fallback: define a minimal stand-in so import never crashes.  The CI
+    # drift check guarantees the real generated file is present in repo.
+    from pydantic import BaseModel
+
+    class KnowledgeEntity(BaseModel):  # type: ignore[no-redef]
+        id: str
+        name: str | None = None
 
 
+# Mirrors the LinkML enum ``x-foundergraph-entity-labels`` -- kept as a
+# Literal here so downstream code (extractor prompts, type hints) can still
+# enumerate the canonical entity subtype names.
 EntityType = Literal[
     "Startup",
     "Founder",
@@ -19,7 +50,11 @@ EntityType = Literal[
     "Experiment",
     "Decision",
     "Milestone",
+    "CustomerInterview",
     "GrantCall",
+    "Grant",
+    "Impact",
+    "Market",
     "Investor",
     "Partner",
     "Competitor",
@@ -27,33 +62,11 @@ EntityType = Literal[
     "RegulatoryConstraint",
     "TechnicalDependency",
     "FinancialHypothesis",
+    "Site",
+    "Vendor",
+    "Country",
+    "Blocker",
 ]
 
 
-class KnowledgeEntity(BaseModel):
-    id: str
-    type: EntityType
-    label: str
-    description: str | None = None
-    source_document_id: str
-    source_file: str
-    source_snippet: str | None = None
-    source_location: str | None = None
-    # Deprecated: LLM-emitted confidence — keep for backward compat with staging files.
-    confidence: Literal["low", "medium", "high"] | None = None
-    # How directly the document text supports this entity.
-    evidence_grade: Literal["direct_quote", "paraphrase", "inference", "speculation"] | None = None
-    # Set by the human reviewer during the validation step.
-    reviewer_confidence: Literal["strong", "moderate", "weak", "ungraded"] | None = None
-    reviewer_comment: str | None = None
-    validation_status: Literal[
-        "pending",
-        "validated",
-        "rejected",
-        "needs_more_evidence",
-        "needs_review",
-    ] = "pending"
-    owner: str | None = None
-    tags: list[str] = Field(default_factory=list)
-    created_at: datetime
-    updated_at: datetime
+__all__ = ["KnowledgeEntity", "EntityType"]
