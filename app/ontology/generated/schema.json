@@ -3874,6 +3874,12 @@
       "slot": "mentions"
     },
     {
+      "domain": "Experiment",
+      "predicate": "MITIGATES",
+      "range": "Risk",
+      "slot": "mitigates"
+    },
+    {
       "domain": "IPAsset",
       "predicate": "PROTECTS",
       "range": "ProductFeature",

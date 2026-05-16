@@ -470,6 +470,14 @@ slots:
       predicate: GENERATES
       relation: true
 
+  mitigates:
+    description: Experiment MITIGATES Risk.
+    domain: Experiment
+    range: Risk
+    annotations:
+      predicate: MITIGATES
+      relation: true
+
   threatens:
     description: Risk THREATENS Milestone.
     domain: Risk

@@ -773,3 +773,10 @@ To run the demo:
 5. Write to Neo4j and explore the graph
 6. Run an Assumption Audit or Pitch Audit
 7. Generate an export bundle
+
+Fast contradictory-data smoke path:
+
+1. Run `make demo` to wipe local staging/vault demo state and ingest `sample_data/contradictory_*.md`
+2. In the app, go to **Extracted Documents** and run extraction on the two contradictory markdown files
+3. Validate the staged candidates, write validated records to Neo4j, then open **Discovery**
+4. Confirm the contradiction/risk tiles (including **Contradicted assumptions** and **Risked milestones**) surface the planted conflicts

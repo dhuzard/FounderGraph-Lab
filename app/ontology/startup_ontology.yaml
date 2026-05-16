@@ -195,6 +195,9 @@ relations:
 - subject: Experiment
   predicate: GENERATES
   object: Evidence
+- subject: Experiment
+  predicate: MITIGATES
+  object: Risk
 - subject: Decision
   predicate: BASED_ON
   object: Evidence
