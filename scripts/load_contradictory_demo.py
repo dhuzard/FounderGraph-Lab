@@ -18,6 +18,9 @@ CONTRADICTORY_SAMPLE_FILES = (
     PROJECT_ROOT / "sample_data" / "contradictory_pitch.md",
     PROJECT_ROOT / "sample_data" / "contradictory_interview.md",
 )
+EXIT_SUCCESS = 0
+EXIT_INGEST_FAILURE = 1
+EXIT_MISSING_SAMPLE = 2
 
 
 def parse_args() -> argparse.Namespace:
@@ -33,6 +36,13 @@ def parse_args() -> argparse.Namespace:
 
 
 def main() -> int:
+    """Run contradictory demo ingestion.
+
+    Exit codes:
+    - 0: success
+    - 1: ingest/read failure
+    - 2: expected sample file missing
+    """
     args = parse_args()
     summary = reset_demo_state(clear_audits=args.clear_audits)
     print(f"Reset demo state. Backup: {summary.backup_dir}")
@@ -43,24 +53,24 @@ def main() -> int:
     for path in CONTRADICTORY_SAMPLE_FILES:
         if not path.exists():
             print(f"Missing sample file: {path}", file=sys.stderr)
-            return 2
+            return EXIT_MISSING_SAMPLE
         try:
             with path.open("rb") as handle:
                 ingest_document(handle, filename=path.name)
         except (FileStoreError, OSError) as exc:
             print(f"Failed to ingest {path.name}: {exc}", file=sys.stderr)
-            return 1
+            return EXIT_INGEST_FAILURE
         ingested += 1
         print(f"Ingested {path.relative_to(PROJECT_ROOT)}")
 
     bridge_path = save_init_bridge(
         source_folder=str((PROJECT_ROOT / "sample_data").resolve()),
-        note="Contradictory sample seeded via `make demo`.",
+        note="Contradictory sample seeded via make demo.",
         show_drive_cta=False,
     )
     print(f"Saved init bridge context: {bridge_path.relative_to(PROJECT_ROOT)}")
     print(f"Demo ready. Ingested {ingested} file(s).")
-    return 0
+    return EXIT_SUCCESS
 
 
 if __name__ == "__main__":

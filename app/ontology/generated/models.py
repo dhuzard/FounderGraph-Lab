@@ -89,7 +89,7 @@ linkml_meta = LinkMLMeta({'default_prefix': 'fg',
                              'prefix_reference': 'http://schema.org/'},
                   'xsd': {'prefix_prefix': 'xsd',
                           'prefix_reference': 'http://www.w3.org/2001/XMLSchema#'}},
-     'source_file': '/home/runner/work/FounderGraph-Lab/FounderGraph-Lab/app/ontology/startup_ontology.linkml.yaml',
+     'source_file': 'startup_ontology.linkml.yaml',
      'title': 'FounderGraph Startup Ontology'} )
 
 class CriticalityEnum(str, Enum):

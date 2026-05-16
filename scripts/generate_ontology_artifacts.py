@@ -29,7 +29,6 @@ import argparse
 import difflib
 import filecmp
 import os
-import shutil
 import sys
 import tempfile
 from pathlib import Path
@@ -103,6 +102,10 @@ def generate_pydantic(schema_path: Path, out_path: Path) -> None:
 
     gen = PydanticGenerator(str(schema_path))
     body = gen.serialize()
+    # The upstream generator embeds an absolute ``source_file`` path in the
+    # metadata block.  Normalize it to the schema file name so generated output
+    # is stable across developer machines and CI runners.
+    body = body.replace(str(schema_path), schema_path.name)
     header = f"# {HEADER_TEXT}\n# Source: {schema_path.name}\n"
     out_path.write_text(header + body, encoding="utf-8")
 
