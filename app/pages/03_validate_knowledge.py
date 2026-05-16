@@ -392,9 +392,10 @@ relations = _filter_records(
     grade_filter=grade_filter,
 )
 
-tab_entities, tab_relations = st.tabs([
+tab_entities, tab_relations, tab_resolve = st.tabs([
     f"Entities ({len(entities)} shown)",
     f"Relations ({len(relations)} shown)",
+    "Resolve duplicates",
 ])
 
 with tab_entities:
@@ -473,6 +474,195 @@ with tab_relations:
             merged = [edited_by_id.get(str(r.get("id", "")), r) for r in all_relations]
             path = store.save_relations(merged)
             st.success(f"Saved {path}")
+
+with tab_resolve:
+    st.subheader("Resolve duplicates")
+    st.caption(
+        "Scan validated entities for likely duplicates, approve reversible "
+        "`SAME_AS` edges, and only consolidate (hard-merge) behind an explicit "
+        "confirmation. SAME_AS edges can always be removed manually before "
+        "consolidation."
+    )
+
+    # Lazy imports so the rest of the page still renders if Neo4j / Qdrant
+    # are unavailable (the resolver tab is the only consumer here).
+    from app.services.entity_resolver import EntityResolver, MergeProposal
+    from app.services.neo4j_service import Neo4jService
+
+    def _resolver_embed_fn():
+        """Return a callable ``str -> list[float]`` for embedding entity names.
+
+        Prefer Ollama-backed Qdrant embeddings when available; fall back to a
+        deterministic hashed bag-of-words vector so the tab still runs when
+        Ollama is offline (cosine quality drops, but the workflow stays
+        usable for demo / smoke-test purposes).
+        """
+        try:
+            from app.services.qdrant_service import QdrantService
+
+            qdrant = QdrantService()
+            return qdrant.embed
+        except Exception:  # noqa: BLE001 — best-effort fallback
+            import hashlib
+            import math
+            import re
+
+            _token_re = re.compile(r"[A-Za-z0-9]+")
+
+            def _hashed(name: str, dims: int = 64) -> list[float]:
+                vec = [0.0] * dims
+                for tok in _token_re.findall(name or ""):
+                    digest = hashlib.sha256(tok.lower().encode("utf-8")).digest()
+                    idx = int.from_bytes(digest[:8], byteorder="big") % dims
+                    vec[idx] += 1.0
+                norm = math.sqrt(sum(x * x for x in vec))
+                if norm == 0.0:
+                    return vec
+                return [x / norm for x in vec]
+
+            return _hashed
+
+    def _resolver_llm():
+        """Return an LLM service that exposes ``generate_json``."""
+        from app.services.llm_service import OllamaLLMService
+
+        return OllamaLLMService()
+
+    if st.button("Scan for duplicates", key="scan_duplicates"):
+        try:
+            neo4j_service = Neo4jService()
+            resolver = EntityResolver(
+                neo4j_service,
+                _resolver_llm(),
+                _resolver_embed_fn(),
+            )
+            with st.spinner("Scanning validated entities..."):
+                proposals = resolver.propose_merges()
+            st.session_state["duplicate_proposals"] = [p.__dict__ for p in proposals]
+            st.success(
+                f"Scan complete: {len(proposals)} candidate merge proposal(s) found."
+            )
+        except Exception as exc:  # noqa: BLE001 — surface as a banner
+            st.error(f"Could not scan for duplicates: {exc}")
+
+    proposals_raw = st.session_state.get("duplicate_proposals", [])
+
+    if proposals_raw:
+        # Group rendering by ontology type so reviewers can focus per kind.
+        by_type: dict[str, list[dict]] = {}
+        for raw in proposals_raw:
+            by_type.setdefault(str(raw.get("entity_type", "")), []).append(raw)
+
+        for entity_type, group in by_type.items():
+            st.markdown(f"### {entity_type or 'Untyped'} ({len(group)})")
+            for idx, raw in enumerate(group):
+                col_left, col_right = st.columns([4, 1])
+                with col_left:
+                    st.markdown(
+                        f"**{raw.get('canonical_name', '')}** "
+                        f"_(canonical: `{raw.get('canonical_id', '')}`)_  ↔  "
+                        f"**{raw.get('duplicate_name', '')}** "
+                        f"_(duplicate: `{raw.get('duplicate_id', '')}`)_"
+                    )
+                    st.caption(
+                        f"cosine={raw.get('cosine_similarity', 0.0):.3f} · "
+                        f"jaccard={raw.get('name_jaccard', 0.0):.3f} · "
+                        f"score={raw.get('score', 0.0):.3f}"
+                    )
+                    with st.expander(f"LLM verdict: {raw.get('llm_verdict', '')}"):
+                        st.write(raw.get("llm_rationale", ""))
+                with col_right:
+                    button_key = (
+                        f"approve_{entity_type}_{raw.get('canonical_id', '')}_"
+                        f"{raw.get('duplicate_id', '')}_{idx}"
+                    )
+                    if st.button("Approve SAME_AS", key=button_key):
+                        try:
+                            neo4j_service = Neo4jService()
+                            resolver = EntityResolver(
+                                neo4j_service,
+                                _resolver_llm(),
+                                _resolver_embed_fn(),
+                            )
+                            proposal = MergeProposal(
+                                canonical_id=str(raw["canonical_id"]),
+                                duplicate_id=str(raw["duplicate_id"]),
+                                canonical_name=str(raw.get("canonical_name", "")),
+                                duplicate_name=str(raw.get("duplicate_name", "")),
+                                entity_type=str(raw.get("entity_type", "")),
+                                cosine_similarity=float(raw.get("cosine_similarity", 0.0)),
+                                name_jaccard=float(raw.get("name_jaccard", 0.0)),
+                                llm_verdict=str(raw.get("llm_verdict", "uncertain")),
+                                llm_rationale=str(raw.get("llm_rationale", "")),
+                                score=float(raw.get("score", 0.0)),
+                            )
+                            resolver.approve(proposal)
+                            st.success(
+                                f"Wrote SAME_AS: {proposal.canonical_id} → "
+                                f"{proposal.duplicate_id}"
+                            )
+                        except Exception as exc:  # noqa: BLE001
+                            st.error(f"Failed to write SAME_AS: {exc}")
+                st.divider()
+
+        # ------------------------------------------------------------------
+        # Consolidation block — list canonicals with outgoing SAME_AS edges and
+        # gate each merge behind a confirmation checkbox.
+        # ------------------------------------------------------------------
+        st.markdown("### Consolidate now (destructive)")
+        st.caption(
+            "Hard-merges all entities reachable via SAME_AS into the canonical "
+            "node using `apoc.refactor.mergeNodes`. This is irreversible. "
+            "Approve a SAME_AS edge first; then explicitly confirm before "
+            "consolidating."
+        )
+        canonicals: list[dict] = []
+        try:
+            neo4j_service = Neo4jService()
+            canonicals = neo4j_service._rows(
+                """
+                MATCH (a:Entity)-[:SAME_AS]->(b:Entity)
+                RETURN a.id AS canonical_id,
+                       a.name AS canonical_name,
+                       collect(DISTINCT b.id) AS duplicate_ids
+                """,
+                {},
+            )
+        except Exception as exc:  # noqa: BLE001
+            st.info(f"Could not list pending SAME_AS clusters: {exc}")
+
+        if not canonicals:
+            st.info("No SAME_AS edges to consolidate.")
+        else:
+            for row in canonicals:
+                cid = str(row.get("canonical_id", ""))
+                cname = str(row.get("canonical_name", "")) or cid
+                dups = list(row.get("duplicate_ids") or [])
+                st.markdown(
+                    f"**{cname}** _(canonical: `{cid}`)_ — "
+                    f"{len(dups)} duplicate(s): {', '.join(map(str, dups)) or '—'}"
+                )
+                confirm = st.checkbox(
+                    f"I understand consolidating `{cid}` is irreversible.",
+                    key=f"confirm_consolidate_{cid}",
+                )
+                if st.button(f"Consolidate {cid}", key=f"consolidate_{cid}"):
+                    if not confirm:
+                        st.warning("Tick the confirmation checkbox first.")
+                    else:
+                        try:
+                            neo4j_service = Neo4jService()
+                            neo4j_service.consolidate(cid)
+                            st.success(f"Consolidated cluster anchored at `{cid}`.")
+                        except Exception as exc:  # noqa: BLE001
+                            st.error(f"Consolidation failed: {exc}")
+                st.divider()
+    else:
+        st.info(
+            "No proposals yet. Click **Scan for duplicates** to embed validated "
+            "entity names, cluster likely duplicates, and ask the LLM to "
+            "confirm same-as candidates."
+        )
 
 with st.expander("Write policy"):
     st.write(

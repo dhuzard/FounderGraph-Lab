@@ -1,9 +1,18 @@
 """Runtime ontology loading and pre-staging validation for FounderGraph-Lab.
 
 The runtime loader exposes labels, relationships, domain/range constraints,
-and required fields from app/ontology/startup_ontology.yaml.  The candidate
-validator uses the same ontology data to partition LLM extractions before they
-enter the human review queue.
+and required fields.  Phase 1 wired this loader to the generated
+``app/ontology/generated/schema.json`` so all downstream code consumes the
+LinkML source of truth instead of a hand-edited YAML.
+
+Backward-compat note: the legacy ``app/ontology/startup_ontology.yaml`` is
+still read by ``ontology_service.py`` (HITL wizard) -- ``OntologyLoader``
+falls back to that YAML when ``schema.json`` is missing so a fresh checkout
+without ``make generate`` still boots; if both inputs disagree, the generated
+file wins.  Run ``make generate`` to refresh the artifacts.
+
+The candidate validator uses the same ontology data to partition LLM
+extractions before they enter the human review queue.
 """
 
 from __future__ import annotations
@@ -18,6 +27,12 @@ import yaml
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_ONTOLOGY_PATH = PROJECT_ROOT / "app" / "ontology" / "startup_ontology.yaml"
+DEFAULT_SCHEMA_JSON_PATH = (
+    PROJECT_ROOT / "app" / "ontology" / "generated" / "schema.json"
+)
+DEFAULT_LINKML_PATH = (
+    PROJECT_ROOT / "app" / "ontology" / "startup_ontology.linkml.yaml"
+)
 DEFAULT_VIOLATIONS_PATH = PROJECT_ROOT / "data" / "staging" / "shacl_violations.json"
 
 _BASE_LABELS = {"Entity", "Document"}
@@ -25,11 +40,45 @@ _FALLBACK_RELATIONS = {"RELATED_TO", "MENTIONS", "SOURCE_OF"}
 
 
 class OntologyLoader:
-    """Load and query the startup ontology YAML."""
+    """Load and query the FounderGraph ontology.
 
-    def __init__(self, path: Path | str | None = None) -> None:
+    The loader prefers the generated ``schema.json`` (LinkML source of truth).
+    If that file is missing -- typically when a developer has not run
+    ``make generate`` yet -- it falls back to parsing the legacy
+    ``startup_ontology.yaml`` so the runtime still boots.  ``path`` retains
+    its legacy meaning (it's the YAML path that the HITL wizard edits) so
+    existing tests like ``OntologyLoader(tmp_path / "nonexistent.yaml")``
+    continue to work and degrade gracefully.
+    """
+
+    def __init__(
+        self,
+        path: Path | str | None = None,
+        schema_json_path: Path | str | None = None,
+    ) -> None:
         self._path = Path(path or DEFAULT_ONTOLOGY_PATH)
-        self._data: dict[str, Any] = self._load()
+        self._schema_json_path = Path(schema_json_path or DEFAULT_SCHEMA_JSON_PATH)
+        # ``schema.json`` is preferred; falling back to the YAML keeps the
+        # call sites that pass tmp_path-style legacy paths working in tests.
+        if path is None and self._schema_json_path.exists():
+            self._data = self._load_from_jsonschema()
+            self._source = "schema.json"
+        elif self._path.exists():
+            self._data = self._load_legacy_yaml()
+            self._source = "yaml"
+        else:
+            self._data = {}
+            self._source = "empty"
+
+    @property
+    def source(self) -> str:
+        """Indicates which artifact the loader is currently reading from.
+
+        Useful in diagnostics / Streamlit footers so reviewers can tell at a
+        glance whether the runtime is reading the generated schema or the
+        legacy YAML fallback.
+        """
+        return self._source
 
     @property
     def version(self) -> str:
@@ -56,9 +105,26 @@ class OntologyLoader:
         return result
 
     def required_fields(self, entity_type: str) -> list[str]:
+        """Return the fields the LLM is told to extract for ``entity_type``.
+
+        Historically this returned the full ``fields`` list from the legacy
+        YAML (used to prime extraction prompts), not a strict JSON-Schema
+        ``required`` list.  We preserve that behavior: callers wanting the
+        truly required subset (e.g. ``id``, ``criticality``) should use
+        ``strictly_required_fields`` instead.
+        """
         classes = self._data.get("classes", {})
         cls = classes.get(entity_type, {})
-        return list(cls.get("required_fields") or cls.get("fields", []))
+        fields = list(cls.get("fields") or [])
+        if fields:
+            return fields
+        return list(cls.get("required_fields") or [])
+
+    def strictly_required_fields(self, entity_type: str) -> list[str]:
+        """Return the LinkML-required subset of ``entity_type``'s fields."""
+        classes = self._data.get("classes", {})
+        cls = classes.get(entity_type, {})
+        return list(cls.get("required_fields") or [])
 
     def validate_relation(
         self,
@@ -66,22 +132,132 @@ class OntologyLoader:
         source_type: str | None,
         target_type: str | None,
     ) -> bool:
+        """Strict domain/range validation.
+
+        Untyped endpoints are no longer accepted — callers must supply both
+        ``source_type`` and ``target_type``.  Use ``validate_relation_detail``
+        to obtain a structured reason when validation fails.
+        """
+        ok, _ = self.validate_relation_detail(rel_type, source_type, target_type)
+        return ok
+
+    def validate_relation_detail(
+        self,
+        rel_type: str,
+        source_type: str | None,
+        target_type: str | None,
+    ) -> tuple[bool, str | None]:
+        """Return (is_valid, violation_reason).
+
+        ``violation_reason`` is ``None`` on success; otherwise a short string
+        the caller may surface to the user / staging report.
+        """
         if not source_type or not target_type:
-            return True
+            return False, (
+                f"Untyped endpoint(s) for predicate '{rel_type}': "
+                f"source_type={source_type!r}, target_type={target_type!r}"
+            )
         allowed_pairs = self.domain_range_map.get(rel_type)
         if not allowed_pairs:
-            return True
+            # Predicate is whitelisted but has no domain/range registered —
+            # accept rather than block (e.g. legacy/test predicates).
+            return True, None
         permissive = {"Entity", "Document"}
         for subj, obj in allowed_pairs:
             if subj in permissive or obj in permissive:
-                return True
+                return True, None
             if source_type == subj and target_type == obj:
-                return True
-        return False
+                return True, None
+        return False, (
+            f"{source_type} -{rel_type}-> {target_type} is not an allowed domain/range pair"
+        )
 
-    def _load(self) -> dict[str, Any]:
-        if not self._path.exists():
+    def _load_from_jsonschema(self) -> dict[str, Any]:
+        """Build the legacy-shaped data dict from the generated JSON-Schema."""
+        try:
+            payload = json.loads(self._schema_json_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
             return {}
+
+        defs = payload.get("$defs", {}) or {}
+        # Build the ``classes`` mapping so required_fields() and allowed_labels
+        # behave the same as they did when reading the legacy YAML.
+        classes: dict[str, dict[str, Any]] = {}
+        entity_labels = payload.get("x-foundergraph-entity-labels") or []
+        for name in entity_labels:
+            spec = defs.get(name, {})
+            if not isinstance(spec, dict):
+                continue
+            props = list(spec.get("properties", {}).keys()) if isinstance(spec.get("properties"), dict) else []
+            required = list(spec.get("required") or [])
+            classes[name] = {
+                "description": spec.get("description", ""),
+                "fields": props,
+                "required_fields": required,
+            }
+
+        # Relation slots are stashed under ``x-foundergraph-relations`` by the
+        # generator so we can recover (predicate, subject, object) triples.
+        relations: list[dict[str, str]] = []
+        non_entity_labels: set[str] = set()
+        for entry in payload.get("x-foundergraph-relations") or []:
+            if not isinstance(entry, dict):
+                continue
+            pred = entry.get("predicate")
+            subj = entry.get("domain") or "Entity"
+            obj = entry.get("range") or "Entity"
+            if pred:
+                relations.append({"predicate": pred, "subject": subj, "object": obj})
+                # Phase 7 -- some relations point at non-Entity node labels
+                # (notably Community).  Promote any such range to a known
+                # graph label so ``allowed_labels`` covers the full set of
+                # nodes the runtime expects to write.
+                for endpoint in (subj, obj):
+                    if (
+                        endpoint
+                        and endpoint not in entity_labels
+                        and endpoint in defs
+                        and endpoint not in {"Entity", "Document"}
+                    ):
+                        non_entity_labels.add(endpoint)
+
+        for name in sorted(non_entity_labels):
+            spec = defs.get(name, {})
+            if not isinstance(spec, dict):
+                continue
+            props = list(spec.get("properties", {}).keys()) if isinstance(spec.get("properties"), dict) else []
+            required = list(spec.get("required") or [])
+            classes.setdefault(name, {
+                "description": spec.get("description", ""),
+                "fields": props,
+                "required_fields": required,
+            })
+
+        # Linkml schemas store the version at the root; the JSON Schema mirrors
+        # it under metadata if available -- otherwise we fall back to "unknown".
+        version = payload.get("metadata", {}).get("version") if isinstance(payload.get("metadata"), dict) else None
+        if not version:
+            # The version is preserved through the LinkML pydantic generator's
+            # ``version = "X.Y.Z"`` module-level constant.  When that's not
+            # parsable we re-read it from the linkml YAML.
+            version = self._read_linkml_version() or "unknown"
+
+        return {"classes": classes, "relations": relations, "version": version}
+
+    def _read_linkml_version(self) -> str | None:
+        try:
+            text = DEFAULT_LINKML_PATH.read_text(encoding="utf-8")
+        except OSError:
+            return None
+        for line in text.splitlines():
+            stripped = line.strip()
+            if stripped.startswith("version:"):
+                # ``version: "0.2.0"`` -- strip quotes if present.
+                return stripped.split(":", 1)[1].strip().strip('"').strip("'")
+        return None
+
+    def _load_legacy_yaml(self) -> dict[str, Any]:
+        """Fallback path: parse the editable legacy YAML directly."""
         try:
             raw = yaml.safe_load(self._path.read_text(encoding="utf-8"))
             return raw if isinstance(raw, dict) else {}
@@ -187,8 +363,46 @@ class OntologyValidator:
             else:
                 report.valid_relations.append(relation)
 
+        # Phase 1.7: deterministic SHACL pass on top of the structural
+        # checks above.  Failures are recorded in the same violations file
+        # (one line per failure) and surfaced as ``shacl-violation`` rules so
+        # the UI can render them alongside the legacy checks.  Gated by
+        # FG_SHACL_ENABLED so operators can roll back if false positives
+        # creep in.
+        try:
+            from app.services import shacl_gate
+
+            shacl_violations = shacl_gate.run_gate(
+                report.valid_entities + [v.candidate for v in report.violations if v.kind == "entity"],
+                report.valid_relations,
+                violations_path=self.violations_path,
+            )
+        except Exception:  # noqa: BLE001 — never let an optional dep crash the validator
+            shacl_violations = []
+
+        for sv in shacl_violations:
+            report.violations.append(
+                Violation(
+                    candidate_id=sv.focus_node or "?",
+                    kind="shacl",
+                    rule=sv.constraint or "shacl-violation",
+                    detail=sv.message or "",
+                    candidate={
+                        "focus_node": sv.focus_node,
+                        "path": sv.path,
+                        "value": sv.value,
+                        "severity": sv.severity,
+                        "source_shape": sv.source_shape,
+                    },
+                )
+            )
+
         if report.violations:
-            self._write_violations(report.violations)
+            # Persist only the *non-SHACL* violations here; SHACL violations
+            # are already on disk thanks to ``shacl_gate.run_gate``.
+            structural = [v for v in report.violations if v.kind != "shacl"]
+            if structural:
+                self._write_violations(structural)
 
         return report
 
@@ -229,10 +443,13 @@ class OntologyValidator:
         if predicate and src and tgt:
             source_type = entity_types_by_id.get(src)
             target_type = entity_types_by_id.get(tgt)
-            if not self._ontology.validate_relation(str(predicate), source_type, target_type):
+            ok, reason = self._ontology.validate_relation_detail(
+                str(predicate), source_type, target_type
+            )
+            if not ok:
                 issues.append((
                     "invalid-domain-range",
-                    f"Predicate '{predicate}' is not valid for {source_type} -> {target_type}",
+                    reason or f"Predicate '{predicate}' is not valid for {source_type} -> {target_type}",
                 ))
 
         return issues

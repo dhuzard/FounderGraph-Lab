@@ -20,3 +20,10 @@ pytest>=8.2.0,<9
 ruff>=0.4.0,<1
 google-api-python-client>=2.151.0,<3
 google-auth>=2.35.0,<3
+# Phase 1 — LinkML single source of truth.  ``linkml`` is the generator
+# toolchain (only needed when running ``make generate``); ``linkml-runtime``
+# is the lightweight import used by the runtime ``OntologyLoader``.
+linkml>=1.7,<2
+linkml-runtime>=1.7,<2
+pyshacl>=0.25,<1
+rdflib>=7,<8

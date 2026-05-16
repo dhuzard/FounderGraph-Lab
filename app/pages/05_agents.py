@@ -9,7 +9,131 @@ except ImportError:  # pragma: no cover
     st = None
 
 from app.services.agents import AUDIT_DIR, WORKFLOWS
+from app.services.citation_verifier import Finding, VerifiedAudit
+from app.services.cypher_planner import CypherPlanner
 from app.services.qdrant_service import index_startup_knowledge
+
+
+def _profile_cypher(
+    service, cypher: str, params: dict
+) -> tuple[str, list[dict]]:
+    """Run ``PROFILE <cypher>`` and return a textual plan + step-level dbHits.
+
+    Phase 8.2 telemetry: opens a read session, prefixes ``PROFILE`` to the
+    generated Cypher, and walks ``Result.consume().profile`` recursively for
+    operator-level dbHits.  Returns ("", []) if Neo4j is unavailable or does
+    not expose a plan (e.g. driver mock under tests).
+    """
+    try:
+        from neo4j import READ_ACCESS
+    except Exception:  # pragma: no cover - neo4j is a hard dep but be defensive
+        return "", []
+
+    steps: list[dict] = []
+
+    def _walk(node, depth: int = 0) -> None:
+        if node is None:
+            return
+        op = getattr(node, "operator_type", None) or getattr(node, "operatorType", None)
+        args = getattr(node, "arguments", {}) or {}
+        steps.append(
+            {
+                "depth": depth,
+                "operator": str(op or "?"),
+                "dbHits": int(getattr(node, "db_hits", 0) or args.get("DbHits", 0) or 0),
+                "rows": int(getattr(node, "rows", 0) or args.get("Rows", 0) or 0),
+            }
+        )
+        for child in getattr(node, "children", []) or []:
+            _walk(child, depth + 1)
+
+    try:
+        with service.driver.session(default_access_mode=READ_ACCESS) as session:
+            result = session.run(f"PROFILE {cypher}", dict(params))
+            # Drain the rows so the server attaches the profile to the summary.
+            for _ in result:
+                pass
+            summary = result.consume()
+            profile = getattr(summary, "profile", None)
+            _walk(profile)
+            plan_text = str(profile) if profile is not None else ""
+    except Exception as exc:  # noqa: BLE001 - surface a "unavailable" badge instead
+        return f"Plan unavailable: {exc}", []
+
+    return plan_text, steps
+
+
+def _finding_row(finding: Finding) -> dict[str, object]:
+    return {
+        "claim": finding.claim,
+        "severity": finding.severity,
+        "confidence": round(float(finding.confidence), 3),
+        "verified": "✓" if finding.verified else "⚠ ungrounded",
+        "entity_ids": ", ".join(finding.evidence_entity_ids),
+        "chunk_ids": ", ".join(finding.source_chunk_ids),
+        "missing_ids": ", ".join(finding.ungrounded_ids),
+    }
+
+
+def _render_verified_audit(structured: VerifiedAudit | None) -> None:
+    """Render the structured Phase-5 audit alongside the legacy Markdown view."""
+    if structured is None:
+        return
+
+    if structured.parse_error:
+        st.warning(
+            "LLM output not in JSON format — showing legacy Markdown only. "
+            f"Parser said: {structured.parse_error}"
+        )
+        return
+
+    if structured.summary:
+        st.markdown("### Summary")
+        st.write(structured.summary)
+
+    verified = structured.verified_findings or []
+    ungrounded = structured.ungrounded_findings or []
+    total = len(verified) + len(ungrounded)
+
+    metric_col1, metric_col2, metric_col3 = st.columns(3)
+    metric_col1.metric("Findings", total)
+    metric_col2.metric("Verified", len(verified))
+    metric_col3.metric("Ungrounded", len(ungrounded))
+
+    if total == 0:
+        st.info("No findings returned by the model.")
+        return
+
+    st.markdown("### Findings")
+    rows = [_finding_row(f) for f in verified] + [_finding_row(f) for f in ungrounded]
+    st.dataframe(
+        rows,
+        use_container_width=True,
+        hide_index=True,
+        column_config={
+            "claim": st.column_config.TextColumn("Claim", width="large"),
+            "severity": st.column_config.TextColumn("Severity"),
+            "confidence": st.column_config.NumberColumn("Confidence", format="%.2f"),
+            "verified": st.column_config.TextColumn(
+                "Verified",
+                help="Verified = every cited id is present in the retrieved context.",
+            ),
+            "entity_ids": st.column_config.TextColumn("Entity citations"),
+            "chunk_ids": st.column_config.TextColumn("Chunk citations"),
+            "missing_ids": st.column_config.TextColumn(
+                "Missing ids",
+                help="Cited ids that were NOT in the retrieval context.",
+            ),
+        },
+    )
+
+    if ungrounded:
+        with st.expander(f"⚠ {len(ungrounded)} ungrounded finding(s) — details", expanded=False):
+            for finding in ungrounded:
+                missing = ", ".join(finding.ungrounded_ids) or "(no citations supplied)"
+                st.markdown(
+                    f"- **{finding.claim}** — missing: `{missing}`"
+                )
 
 
 def _list_previous_audits(slug: str) -> list[Path]:
@@ -27,6 +151,104 @@ def main() -> None:
     st.set_page_config(page_title="FounderGraph-Lab Agents", layout="wide")
     st.title("Agent Audits")
     st.caption("Read-only workflows combine Neo4j context, Qdrant snippets, and Ollama synthesis when available.")
+
+    # ------------------------------------------------------------------
+    # Phase 3: Ask the graph (schema-aware text2Cypher)
+    # ------------------------------------------------------------------
+    # The planner translates a natural-language question into a single
+    # read-only Cypher query, validates labels/relationships/domain-range
+    # against the live ontology, auto-injects ``LIMIT $max_rows``, and
+    # runs the query through a READ_ACCESS session.  All other sections
+    # on this page (verified-audit rendering, workflow runner, previous
+    # audits) are unchanged.
+    st.subheader("Ask the graph (text → Cypher)")
+    st.caption(
+        "Translate a question into a read-only Cypher query. The planner is "
+        "ontology-guarded: off-schema labels or relationships, write clauses, "
+        "and injection-style substrings are rejected before execution."
+    )
+    question = st.text_input(
+        "Question",
+        key="ask_the_graph_question",
+        placeholder=(
+            "e.g. Which high-criticality assumptions have no supporting evidence?"
+        ),
+    )
+    planner_cols = st.columns([1, 1, 2])
+    with planner_cols[0]:
+        run_planner = st.button("Plan & run", key="ask_the_graph_run")
+    with planner_cols[1]:
+        show_profile = st.checkbox(
+            "Show query plan",
+            value=False,
+            key="ask_the_graph_profile",
+            help="Run PROFILE on the generated Cypher and report dbHits per step.",
+        )
+    if run_planner and question.strip():
+        neo4j_service = None
+        try:
+            from app.services.llm_service import OllamaLLMService
+            from app.services.neo4j_service import Neo4jService
+
+            neo4j_service = Neo4jService()
+            llm_service = OllamaLLMService()
+            planner = CypherPlanner(neo4j_service, llm_service)
+            result = planner.ask(question.strip())
+        except Exception as exc:  # noqa: BLE001 — surface any wiring error to the UI
+            st.error(f"Planner unavailable: {exc}")
+            result = None
+
+        if result is not None:
+            if result.repair_attempted:
+                st.info(
+                    "One repair pass was performed after the first plan failed "
+                    "ontology validation."
+                )
+            if result.plan is None:
+                st.error("Planner could not produce a valid query.")
+                violation_rows = [
+                    {"kind": v.kind, "detail": v.detail} for v in result.violations
+                ]
+                st.dataframe(
+                    violation_rows,
+                    use_container_width=True,
+                    hide_index=True,
+                )
+            else:
+                with st.expander("Generated Cypher", expanded=True):
+                    st.code(result.plan.cypher, language="cypher")
+                    if result.plan.params:
+                        st.caption("Parameters:")
+                        st.json(result.plan.params)
+                with st.expander("Rationale", expanded=False):
+                    st.write(result.plan.rationale or "(no rationale)")
+                with st.expander("Results", expanded=True):
+                    rows = result.rows or []
+                    if rows:
+                        st.dataframe(rows, use_container_width=True, hide_index=True)
+                    else:
+                        st.caption("No rows.")
+
+                if show_profile and neo4j_service is not None:
+                    plan_text, plan_steps = _profile_cypher(
+                        neo4j_service, result.plan.cypher, result.plan.params or {}
+                    )
+                    with st.expander("Query plan / dbHits", expanded=False):
+                        if not plan_text and not plan_steps:
+                            st.caption("Plan unavailable.")
+                        else:
+                            if plan_steps:
+                                st.dataframe(
+                                    plan_steps,
+                                    use_container_width=True,
+                                    hide_index=True,
+                                )
+                            if plan_text:
+                                st.code(plan_text, language="text")
+    elif run_planner:
+        st.warning("Enter a question first.")
+
+    st.divider()
 
     # --- Agent catalog ---
     _WORKFLOW_CATALOG = [
@@ -215,7 +437,13 @@ def main() -> None:
         audit_path = Path(result["path"])
         st.success(f"Audit saved: `{audit_path.name}`")
         audit_text = audit_path.read_text(encoding="utf-8") if audit_path.exists() else ""
-        st.markdown(audit_text)
+
+        # Phase 5: render structured findings (verified vs. ungrounded) when available.
+        structured = result.get("structured")
+        _render_verified_audit(structured)
+
+        with st.expander("Raw LLM output (legacy Markdown view)", expanded=structured is None or (structured and structured.parse_error)):
+            st.markdown(audit_text)
 
         # --- Previous audits ---
         slug = audit_path.stem.split("-", 1)[-1] if "-" in audit_path.stem else audit_path.stem

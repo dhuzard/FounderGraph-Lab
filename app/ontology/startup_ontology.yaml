@@ -1,3 +1,4 @@
+version: "0.2.0"
 domain: Biotech / Life Sciences
 goals:
 - assumption_validation
@@ -155,6 +156,14 @@ classes:
   Blocker:
     description: ''
     fields: []
+  Community:
+    description: A graph-level cluster of related Entity nodes with an LLM summary (Phase 7).
+    fields:
+    - id
+    - summary
+    - embedding
+    - size
+    - risk_exposure
 relations:
 - subject: Startup
   predicate: TARGETS
@@ -210,3 +219,12 @@ relations:
 - subject: Document
   predicate: SOURCE_OF
   object: Evidence
+- subject: Entity
+  predicate: SUPERSEDED_BY
+  object: Entity
+- subject: Entity
+  predicate: SAME_AS
+  object: Entity
+- subject: Entity
+  predicate: IN_COMMUNITY
+  object: Community

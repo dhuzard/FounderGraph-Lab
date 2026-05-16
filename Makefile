@@ -1,4 +1,4 @@
-.PHONY: up down logs test lint format pull-models init init-trialmesh reset-demo
+.PHONY: up down logs test lint format pull-models init init-trialmesh reset-demo generate generate-check
 
 ifeq ($(OS),Windows_NT)
 PYTHON ?= py -3
@@ -36,3 +36,13 @@ init-trialmesh:
 
 reset-demo:
 	$(PYTHON) scripts/reset_demo_state.py
+
+# Regenerate Pydantic models / JSON-Schema / SHACL shapes / Cypher DDL from
+# the LinkML source of truth (app/ontology/startup_ontology.linkml.yaml).
+generate:
+	$(PYTHON) scripts/generate_ontology_artifacts.py
+
+# CI / pre-commit drift guard: regenerate into a temp dir and diff against
+# the committed app/ontology/generated/ tree.  Exits non-zero on drift.
+generate-check:
+	$(PYTHON) scripts/generate_ontology_artifacts.py --check

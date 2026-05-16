@@ -1,18 +1,30 @@
 # FounderGraph-Lab
 
-A local-first, human-in-the-loop Streamlit application that converts raw startup documents into a validated, queryable Neo4j knowledge graph. Every piece of LLM-extracted knowledge passes through an explicit human review gate before entering the graph.
+**An illustrative reference implementation of ontology-driven GraphRAG.** FounderGraph-Lab turns raw startup documents (pitch decks, interviews, plans, roadmaps) into a validated Neo4j knowledge graph and demonstrates *why* a typed, bi-temporal graph beats a pile of chunks for high-stakes diligence-style questions.
+
+The repository is organised around five pillars that work together — each is a discrete, testable mechanism, and each is wired into the Streamlit UI so you can see the guarantee fire on real documents.
+
+### The five pillars
+
+1. **Constrained extraction.** Every entity and relation the LLM proposes is validated against a [LinkML ontology](app/ontology/startup_ontology.linkml.yaml) (entity types, predicates, domain/range, SHACL shapes) before it ever reaches staging. Untyped or off-schema candidates are rejected with an auditable violation log, not silently admitted. See `/Validate Knowledge` (`app/pages/03_validate_knowledge.py`).
+
+2. **Deterministic discovery.** A registry of read-only Cypher queries surfaces ontology-grounded gaps — unsupported assumptions, orphan customer segments, contradicted evidence chains, untested critical claims — without involving the LLM at all. The queries reference only ontology-declared labels and predicates, are unit-tested for alignment, and run with `$limit` as the sole parameter. See `/Discovery` (`app/pages/07_discovery.py`).
+
+3. **Ontology-guarded text-to-Cypher.** Natural-language questions are translated into a single read-only Cypher query by a planner that whitelists labels, predicates, and domain/range pairs, blocks write clauses and injection-style tokens, and supports one repair pass on failure. Every generated query is shown to the user with its rationale. See `/Agents → Ask the graph` (`app/services/cypher_planner.py`).
+
+4. **Grounded citations.** Audit agents emit structured JSON with explicit `evidence_entity_ids` and `source_chunk_ids` on every finding. A citation verifier drops or flags any finding whose cited ids are not present in the retrieved context — hallucinated provenance is filtered before it reaches the user. See `/Agents` (`app/services/citation_verifier.py`).
+
+5. **Bi-temporal audit trail.** Every entity and relation carries `valid_from`, `valid_to`, and `superseded_by`. The Graph Explorer ships a "View graph as of <date>" slider and the Discovery page ships a `valid_at` filter, so you can answer *"what did we know on date X?"* and reproduce stale decisions for forensic review. See `/Graph Explorer` and `/Discovery`.
 
 ```
-startup files
-    └─▶ text extraction & Markdown vault
-            └─▶ LLM classification + entity/relation extraction
-                    └─▶ ontology pre-validation (type + predicate gate)
-                            └─▶ human review (approve / reject / flag)
-                                    └─▶ Neo4j graph  ←  Qdrant vector index
-                                                └─▶ audit agents + export
+startup files → text extraction → LLM extraction (1) → ontology validation (1)
+              → human review → Neo4j graph + Qdrant vectors
+              → discovery (2) · text→Cypher (3) · audit agents (4) · bi-temporal slice (5)
 ```
 
-**Key guarantee:** LLM output never reaches Neo4j without explicit human approval.
+**Plus:** community summarisation (Microsoft GraphRAG-style Louvain clusters), native Neo4j vector index over entity summaries, entity resolution via reversible `SAME_AS` edges, and stub MCP servers in `app/mcp/` so an external host (Claude Desktop, an IDE) can call `query_graph`, `semantic_search`, and `discovery_query` against the same guardrails.
+
+**Key guarantee:** LLM output never reaches Neo4j without explicit human approval *and* ontology validation.
 
 ## Start here (new users)
 

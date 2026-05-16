@@ -154,7 +154,16 @@ def test_ontology_entity_and_relation_shapes_are_supported(tmp_path):
                         "source_snippet": "CROs need metadata interoperability.",
                         "confidence": "medium",
                         "tags": ["pricing"],
-                    }
+                    },
+                    # Phase 0.4: the target endpoint must be a known entity so
+                    # the validator can resolve its type for domain/range.
+                    {
+                        "temporary_id": "TMP-002",
+                        "type": "Evidence",
+                        "label": "Interview transcript with CROs",
+                        "description": "Interview confirms pricing willingness.",
+                        "source_snippet": "Interview evidence supports the need.",
+                    },
                 ]
             },
             {

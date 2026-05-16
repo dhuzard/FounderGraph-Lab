@@ -7,6 +7,16 @@ This project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added — Phase 8 (Polish, MCP, docs)
+- Bi-temporal "View graph as of" date slider in Graph Explorer; snapshot is filtered through `Neo4jService.as_of`.
+- "Upcoming milestones" expander in Graph Explorer with a deadline-window day input.
+- `valid_at` date filter on the Discovery page; `discovery_queries.run()` accepts an optional `valid_at` argument that injects a bi-temporal predicate into the first MATCH clause.
+- "Show query plan" checkbox on the Agents "Ask the graph" section. When enabled, the page runs `PROFILE <cypher>` and renders operator-level dbHits in an expander.
+- MCP stub servers under `app/mcp/`: `neo4j_server.py` (`query_graph`, `get_unsupported_assumptions`), `qdrant_server.py` (`semantic_search`), `discovery_server.py` (`list_discovery_queries`, `discovery_query`). All three import without the `mcp` SDK and raise a typed `MCPUnavailableError` with an install hint when `serve()` is called.
+- README lede rewritten around the five pillars (constrained extraction, deterministic discovery, ontology-guarded text-to-Cypher, grounded citations, bi-temporal audit trail).
+- Deliberately contradictory sample dataset: `sample_data/contradictory_pitch.md` (BioVerify pitch with conflicting TAM and pricing claims) and `sample_data/contradictory_interview.md` (Geisinger interview supplying contradicting evidence) so contradiction-detection discovery surfaces drama on first run.
+- `tests/test_mcp_servers.py` — verifies the degraded-mode contract for each MCP server.
+
 ## [0.1.0] — 2026-05-04
 
 ### Added

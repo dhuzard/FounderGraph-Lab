@@ -1,0 +1,849 @@
+id: https://foundergraph.dev/ontology/startup
+name: startup
+title: FounderGraph Startup Ontology
+description: |
+  LinkML single-source-of-truth ontology for FounderGraph-Lab.
+  Mirrors `app/ontology/startup_ontology.yaml` (the legacy editable YAML) but
+  encoded in proper LinkML so we can generate Pydantic models, JSON-Schema,
+  SHACL shapes, and Cypher DDL deterministically from one file.
+version: 0.2.0
+license: MIT
+
+prefixes:
+  linkml: https://w3id.org/linkml/
+  fg: https://foundergraph.dev/ontology/
+  xsd: http://www.w3.org/2001/XMLSchema#
+  schema: http://schema.org/
+
+default_prefix: fg
+default_range: string
+
+imports:
+  - linkml:types
+
+# ---------------------------------------------------------------------------
+# Enumerations
+# ---------------------------------------------------------------------------
+enums:
+  CriticalityEnum:
+    description: Strategic importance of an assumption.
+    permissible_values:
+      low: {}
+      medium: {}
+      high: {}
+      critical: {}
+
+  SeverityEnum:
+    description: Severity of a problem or impact.
+    permissible_values:
+      low: {}
+      medium: {}
+      high: {}
+      critical: {}
+
+  FrequencyEnum:
+    description: How frequently a problem is encountered.
+    permissible_values:
+      rare: {}
+      occasional: {}
+      frequent: {}
+      constant: {}
+
+  StrengthEnum:
+    description: Strength of evidence.
+    permissible_values:
+      weak: {}
+      moderate: {}
+      strong: {}
+
+  EvidenceTypeEnum:
+    description: Type/source category of evidence.
+    permissible_values:
+      interview: {}
+      experiment: {}
+      literature: {}
+      market_data: {}
+      anecdote: {}
+      other: {}
+
+  EvidenceGradeEnum:
+    description: How directly the source supports the assertion.
+    permissible_values:
+      direct_quote: {}
+      paraphrase: {}
+      inference: {}
+      speculation: {}
+
+  ReviewerConfidenceEnum:
+    description: Reviewer-assigned confidence for an entity or relation.
+    permissible_values:
+      strong: {}
+      moderate: {}
+      weak: {}
+      ungraded: {}
+
+  ValidationStatusEnum:
+    description: Current validation lifecycle stage.
+    permissible_values:
+      pending: {}
+      validated: {}
+      rejected: {}
+      needs_more_evidence: {}
+      needs_review: {}
+
+  ExperimentStatusEnum:
+    description: Lifecycle of an experiment.
+    permissible_values:
+      planned: {}
+      running: {}
+      completed: {}
+      abandoned: {}
+
+  MilestoneStatusEnum:
+    description: Lifecycle of a milestone.
+    permissible_values:
+      planned: {}
+      in_progress: {}
+      completed: {}
+      missed: {}
+
+  RiskTypeEnum:
+    description: Category of a risk.
+    permissible_values:
+      business: {}
+      technical: {}
+      regulatory: {}
+      market: {}
+      execution: {}
+      financial: {}
+
+  MaturityStageEnum:
+    description: Startup maturity stage.
+    permissible_values:
+      idea: {}
+      prototype: {}
+      mvp: {}
+      growth: {}
+      scale: {}
+
+# ---------------------------------------------------------------------------
+# Slots (properties)
+#
+# Domain/range here also encodes allowed graph predicates.  Slots whose
+# range is a class (not a primitive) and whose ``relation: true`` annotation
+# is set are emitted as Neo4j relationship types by the Cypher DDL generator.
+# ---------------------------------------------------------------------------
+slots:
+  # ----- identity / shared entity slots -----
+  id:
+    description: Stable identifier for the entity or relation.
+    identifier: true
+    required: true
+    range: string
+
+  name:
+    description: Human-readable display name.
+    range: string
+
+  label:
+    description: Short label (often used in graphs / UI).
+    range: string
+
+  description:
+    description: Free-text description.
+    range: string
+
+  # ----- provenance -----
+  source_document_id:
+    description: ID of the document this record was extracted from.
+    range: string
+
+  source_file:
+    description: Filename of the originating document.
+    range: string
+
+  source_snippet:
+    description: Original source text excerpt.
+    range: string
+
+  source_location:
+    description: Coarse location in the source (page, slide, paragraph).
+    range: string
+
+  # ----- review lifecycle -----
+  evidence_grade:
+    description: How directly the source supports the assertion.
+    range: EvidenceGradeEnum
+
+  reviewer_confidence:
+    description: Human-assigned reviewer confidence.
+    range: ReviewerConfidenceEnum
+
+  reviewer_comment:
+    description: Free-form reviewer notes.
+    range: string
+
+  validation_status:
+    description: Lifecycle status of this candidate record.
+    range: ValidationStatusEnum
+
+  # ----- bi-temporal (Phase 0.5) -----
+  valid_from:
+    description: Datetime this version became valid.
+    range: datetime
+
+  valid_to:
+    description: Datetime this version stopped being valid.
+    range: datetime
+
+  superseded_by:
+    description: Id of the entity that replaces this one.
+    range: string
+
+  # ----- timestamps (Phase 7) -----
+  created_at:
+    description: Datetime this record was created.
+    range: datetime
+
+  updated_at:
+    description: Datetime this record was last updated.
+    range: datetime
+
+  # ----- Community-specific (Phase 7) -----
+  summary:
+    description: Short LLM-generated description of a community.
+    range: string
+
+  embedding:
+    description: Numeric embedding vector.
+    range: float
+    multivalued: true
+
+  size:
+    description: Number of members in a community.
+    range: integer
+
+  risk_exposure:
+    description: Share of community members carrying high-criticality risk markers.
+    range: float
+
+  # ----- Startup-specific -----
+  sector:
+    description: Industry or sector.
+    range: string
+  maturity_stage:
+    description: Where the startup is in its lifecycle.
+    range: MaturityStageEnum
+  location:
+    description: Geographic location.
+    range: string
+
+  # ----- Founder-specific -----
+  role:
+    description: Role of a founder or partner.
+    range: string
+  background:
+    description: Background of a person.
+    range: string
+
+  # ----- CustomerSegment-specific -----
+  urgency:
+    description: How urgent the need is for this segment.
+    range: SeverityEnum
+  willingness_to_pay:
+    description: How willing the segment is to pay (free-form).
+    range: string
+
+  # ----- Problem-specific -----
+  severity:
+    description: Severity of a problem or impact.
+    range: SeverityEnum
+  frequency:
+    description: How often a problem occurs.
+    range: FrequencyEnum
+
+  # ----- ValueProposition-specific -----
+  differentiator:
+    description: What makes this value proposition stand out.
+    range: string
+
+  # ----- ProductFeature-specific -----
+  maturity:
+    description: Maturity of a feature.
+    range: string
+  linked_problem:
+    description: Free-form pointer to a related problem.
+    range: string
+
+  # ----- Assumption-specific -----
+  criticality:
+    description: Strategic importance of the assumption.
+    range: CriticalityEnum
+    required: true
+
+  # ----- Evidence-specific -----
+  source:
+    description: Citation or source attribution.
+    range: string
+  evidence_type:
+    description: Category of evidence.
+    range: EvidenceTypeEnum
+  strength:
+    description: Strength of evidence.
+    range: StrengthEnum
+
+  # ----- Risk-specific -----
+  risk_type:
+    description: Category of a risk.
+    range: RiskTypeEnum
+  probability:
+    description: Probability of the risk materializing.
+    range: SeverityEnum
+  impact:
+    description: Magnitude of the impact.
+    range: SeverityEnum
+  mitigation:
+    description: Mitigation plan.
+    range: string
+
+  # ----- Experiment-specific -----
+  hypothesis:
+    description: Hypothesis under test.
+    range: string
+  method:
+    description: Experimental method.
+    range: string
+  success_criteria:
+    description: How success is measured.
+    range: string
+  experiment_status:
+    description: Experiment lifecycle status.
+    range: ExperimentStatusEnum
+
+  # ----- Decision-specific -----
+  decision_date:
+    description: Date associated with the entity.
+    range: date
+  rationale:
+    description: Why the decision was made.
+    range: string
+  decided_by:
+    description: Decision maker.
+    range: string
+
+  # ----- Milestone-specific -----
+  deadline:
+    description: Deadline of the milestone.
+    range: date
+  milestone_status:
+    description: Milestone lifecycle status.
+    range: MilestoneStatusEnum
+
+  # ----- GrantCall-specific -----
+  funder:
+    description: Funder for a grant call.
+    range: string
+  themes:
+    description: Themes covered by the grant call.
+    range: string
+    multivalued: true
+  fit_score:
+    description: How well the startup fits the call.
+    range: float
+
+  # ----- Investor-specific -----
+  stage:
+    description: Preferred investment stage.
+    range: string
+  thesis:
+    description: Investment thesis.
+    range: string
+
+  # ----- Partner-specific / Competitor-specific -----
+  status:
+    description: Current status of a partnership or asset.
+    range: string
+  differentiation:
+    description: How a competitor differentiates itself.
+    range: string
+
+  # ----- IPAsset / RegulatoryConstraint -----
+  owner:
+    description: Owner of an asset.
+    range: string
+  jurisdiction:
+    description: Regulatory jurisdiction.
+    range: string
+
+  # ----- TechnicalDependency -----
+  system:
+    description: System being depended on.
+    range: string
+  risk_level:
+    description: Risk level of a dependency.
+    range: SeverityEnum
+
+  # ----- FinancialHypothesis -----
+  metric:
+    description: Financial metric the hypothesis concerns.
+    range: string
+  assumption_text:
+    description: Free-form text statement of the financial assumption.
+    range: string
+
+  # ===========================================================================
+  # Relation slots (predicate definitions)
+  #
+  # Each of these is annotated with relation: true.  The Cypher generator
+  # reads ``domain``/``range``/``annotations.predicate`` to emit allowed
+  # triples and per-predicate indexes.
+  # ===========================================================================
+  targets:
+    description: Startup TARGETS CustomerSegment.
+    domain: Startup
+    range: CustomerSegment
+    annotations:
+      predicate: TARGETS
+      relation: true
+
+  has_problem:
+    description: CustomerSegment HAS_PROBLEM Problem.
+    domain: CustomerSegment
+    range: Problem
+    annotations:
+      predicate: HAS_PROBLEM
+      relation: true
+
+  addresses:
+    description: ProductFeature ADDRESSES Problem.
+    domain: ProductFeature
+    range: Problem
+    annotations:
+      predicate: ADDRESSES
+      relation: true
+
+  based_on:
+    description: ValueProposition / Decision BASED_ON Problem / Evidence.
+    domain: Entity
+    range: Entity
+    annotations:
+      predicate: BASED_ON
+      relation: true
+
+  provides:
+    description: Startup / Partner PROVIDES ValueProposition / ProductFeature.
+    domain: Entity
+    range: Entity
+    annotations:
+      predicate: PROVIDES
+      relation: true
+
+  supported_by:
+    description: Assumption SUPPORTED_BY Evidence.
+    domain: Assumption
+    range: Evidence
+    annotations:
+      predicate: SUPPORTED_BY
+      relation: true
+
+  contradicted_by:
+    description: Assumption CONTRADICTED_BY Evidence.
+    domain: Assumption
+    range: Evidence
+    annotations:
+      predicate: CONTRADICTED_BY
+      relation: true
+
+  tests:
+    description: Experiment TESTS Assumption.
+    domain: Experiment
+    range: Assumption
+    annotations:
+      predicate: TESTS
+      relation: true
+
+  generates:
+    description: Experiment GENERATES Evidence.
+    domain: Experiment
+    range: Evidence
+    annotations:
+      predicate: GENERATES
+      relation: true
+
+  threatens:
+    description: Risk THREATENS Milestone.
+    domain: Risk
+    range: Milestone
+    annotations:
+      predicate: THREATENS
+      relation: true
+
+  depends_on:
+    description: TechnicalDependency DEPENDS_ON TechnicalDependency.
+    domain: TechnicalDependency
+    range: TechnicalDependency
+    annotations:
+      predicate: DEPENDS_ON
+      relation: true
+
+  competes_on:
+    description: Competitor COMPETES_ON ValueProposition.
+    domain: Competitor
+    range: ValueProposition
+    annotations:
+      predicate: COMPETES_ON
+      relation: true
+
+  protects:
+    description: IPAsset PROTECTS ProductFeature.
+    domain: IPAsset
+    range: ProductFeature
+    annotations:
+      predicate: PROTECTS
+      relation: true
+
+  funds:
+    description: GrantCall FUNDS Experiment.
+    domain: GrantCall
+    range: Experiment
+    annotations:
+      predicate: FUNDS
+      relation: true
+
+  mentions:
+    description: Document MENTIONS Entity.
+    domain: Document
+    range: Entity
+    annotations:
+      predicate: MENTIONS
+      relation: true
+
+  source_of:
+    description: Document SOURCE_OF Evidence.
+    domain: Document
+    range: Evidence
+    annotations:
+      predicate: SOURCE_OF
+      relation: true
+
+  related_to:
+    description: Generic fallback Entity RELATED_TO Entity.
+    domain: Entity
+    range: Entity
+    annotations:
+      predicate: RELATED_TO
+      relation: true
+
+  supersedes_relation:
+    description: Entity SUPERSEDED_BY Entity (bi-temporal lineage).
+    domain: Entity
+    range: Entity
+    annotations:
+      predicate: SUPERSEDED_BY
+      relation: true
+
+  same_as:
+    description: Entity SAME_AS Entity (reversible duplicate marker; Phase 6 entity resolution).
+    domain: Entity
+    range: Entity
+    annotations:
+      predicate: SAME_AS
+      relation: true
+
+  in_community:
+    description: Entity IN_COMMUNITY Community (Phase 7 graph-level summarization).
+    domain: Entity
+    range: Community
+    annotations:
+      predicate: IN_COMMUNITY
+      relation: true
+
+# ---------------------------------------------------------------------------
+# Classes
+# ---------------------------------------------------------------------------
+classes:
+  # Root container so we can serialize a whole graph in one document.
+  KnowledgeBase:
+    tree_root: true
+    description: Top-level container for a FounderGraph dataset.
+    attributes:
+      entities:
+        range: Entity
+        multivalued: true
+        inlined_as_list: true
+      relations:
+        range: Relation
+        multivalued: true
+        inlined_as_list: true
+      documents:
+        range: Document
+        multivalued: true
+        inlined_as_list: true
+
+  # Shared base mixin so every concrete entity carries the Neo4j Entity label.
+  Entity:
+    description: Base class for all FounderGraph nodes (mapped to :Entity in Neo4j).
+    slots:
+      - id
+      - name
+      - label
+      - description
+      - source_document_id
+      - source_file
+      - source_snippet
+      - source_location
+      - evidence_grade
+      - reviewer_confidence
+      - reviewer_comment
+      - validation_status
+      - valid_from
+      - valid_to
+      - superseded_by
+
+  Document:
+    description: A source document the knowledge was extracted from.
+    slots:
+      - id
+      - name
+      - description
+      - source_file
+      - valid_from
+      - valid_to
+
+  Relation:
+    description: A typed edge between two Entities.
+    slots:
+      - id
+      - source_document_id
+      - source_file
+      - source_snippet
+      - evidence_grade
+      - reviewer_confidence
+      - reviewer_comment
+      - validation_status
+      - valid_from
+      - valid_to
+
+  Startup:
+    is_a: Entity
+    description: The startup or project being analyzed.
+    slot_usage:
+      name:
+        required: true
+    slots:
+      - sector
+      - maturity_stage
+      - location
+
+  Founder:
+    is_a: Entity
+    description: A founder or key team member.
+    slot_usage:
+      name:
+        required: true
+    slots:
+      - role
+      - background
+
+  CustomerSegment:
+    is_a: Entity
+    description: A group of potential users, buyers, or beneficiaries.
+    slots:
+      - urgency
+      - willingness_to_pay
+
+  Problem:
+    is_a: Entity
+    description: A pain point or unmet need experienced by a customer segment.
+    slots:
+      - severity
+      - frequency
+
+  ValueProposition:
+    is_a: Entity
+    description: The promised value delivered by the startup.
+    slots:
+      - differentiator
+
+  ProductFeature:
+    is_a: Entity
+    description: A technical or functional product component.
+    slots:
+      - maturity
+      - linked_problem
+
+  Assumption:
+    is_a: Entity
+    description: A claim that is not fully proven yet.
+    slot_usage:
+      criticality:
+        required: true
+    slots:
+      - criticality
+
+  Evidence:
+    is_a: Entity
+    description: A source-backed observation supporting or contradicting an assumption.
+    slots:
+      - source
+      - evidence_type
+      - strength
+
+  Risk:
+    is_a: Entity
+    description: A business, technical, regulatory, market, or execution risk.
+    slots:
+      - risk_type
+      - probability
+      - impact
+      - mitigation
+
+  Experiment:
+    is_a: Entity
+    description: A test designed to validate or invalidate an assumption.
+    slots:
+      - hypothesis
+      - method
+      - success_criteria
+      - experiment_status
+
+  Decision:
+    is_a: Entity
+    description: A strategic or operational decision.
+    slots:
+      - decision_date
+      - rationale
+      - decided_by
+
+  Milestone:
+    is_a: Entity
+    description: A time-bound objective.
+    slots:
+      - deadline
+      - success_criteria
+      - milestone_status
+
+  CustomerInterview:
+    is_a: Entity
+    description: A customer interview, recorded as a graph entity.
+    slots:
+      - decision_date
+
+  GrantCall:
+    is_a: Entity
+    description: A funding opportunity.
+    slot_usage:
+      name:
+        required: true
+    slots:
+      - funder
+      - deadline
+      - themes
+      - fit_score
+
+  Grant:
+    is_a: Entity
+    description: An awarded grant.
+    slots:
+      - funder
+      - decision_date
+
+  Impact:
+    is_a: Entity
+    description: A claimed or measured impact.
+    slots:
+      - description
+
+  Market:
+    is_a: Entity
+    description: A market segment, channel, or geographic market.
+    slots:
+      - location
+
+  Investor:
+    is_a: Entity
+    description: An investor or investment organization.
+    slot_usage:
+      name:
+        required: true
+    slots:
+      - stage
+      - thesis
+
+  Partner:
+    is_a: Entity
+    description: A partner organization.
+    slot_usage:
+      name:
+        required: true
+    slots:
+      - role
+      - status
+
+  Competitor:
+    is_a: Entity
+    description: A competing product, company, or workaround.
+    slot_usage:
+      name:
+        required: true
+    slots:
+      - differentiation
+
+  IPAsset:
+    is_a: Entity
+    description: An intellectual property asset.
+    slots:
+      - status
+      - owner
+
+  RegulatoryConstraint:
+    is_a: Entity
+    description: A regulatory or compliance constraint.
+    slots:
+      - jurisdiction
+      - impact
+
+  TechnicalDependency:
+    is_a: Entity
+    description: A technical dependency or integration requirement.
+    slots:
+      - system
+      - risk_level
+
+  FinancialHypothesis:
+    is_a: Entity
+    description: A financial forecast or business model hypothesis.
+    slots:
+      - metric
+      - assumption_text
+
+  # Community summarization (Phase 7).  Communities are *not* Entity subtypes:
+  # they live on their own ``(:Community)`` label, populated by graph-level
+  # clustering (Louvain via GDS, or label-propagation fallback) over the
+  # validated entity subgraph.  Each Community carries a short LLM summary,
+  # its embedding (indexed via the ``community_embedding`` vector index), and
+  # a ``risk_exposure`` ratio so the UI can rank by strategic risk concentration.
+  Community:
+    description: A graph-level cluster of related Entity nodes with an LLM summary.
+    slots:
+      - id
+      - summary
+      - embedding
+      - size
+      - risk_exposure
+      - created_at
+      - updated_at
+
+  # Additional shell classes referenced by extractors but with no fields yet.
+  Site:
+    is_a: Entity
+    description: A physical site (lab, office, plant).
+  Vendor:
+    is_a: Entity
+    description: A vendor or supplier.
+  Country:
+    is_a: Entity
+    description: A country reference.
+  Blocker:
+    is_a: Entity
+    description: A blocker preventing forward progress.
