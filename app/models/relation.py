@@ -34,6 +34,7 @@ RelationType = Literal[
     "CONTRADICTED_BY",
     "TESTS",
     "GENERATES",
+    "MITIGATES",
     "THREATENS",
     "DEPENDS_ON",
     "COMPETES_ON",

@@ -236,7 +236,7 @@ def test_query_relationships_are_ontology_allowed(query):
         ),
         ("orphan_segments", ["CustomerSegment", "HAS_PROBLEM", "Problem", "NOT"]),
         ("orphan_problems", ["Problem", "ProductFeature", "ADDRESSES", "NOT"]),
-        ("risked_milestones", ["Milestone", "Risk", "THREATENS", "Experiment"]),
+        ("risked_milestones", ["Milestone", "Risk", "THREATENS", "Experiment", "MITIGATES"]),
         (
             "untested_critical_assumptions",
             ["Assumption", "criticality", "high", "Experiment", "TESTS", "NOT"],

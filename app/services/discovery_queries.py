@@ -200,22 +200,13 @@ register(
     expected_columns=("id", "name", "severity"),
 )
 
-# NOTE: The plan calls for a MITIGATES predicate (Experiment -[:MITIGATES]-> Risk),
-# but startup_ontology.yaml does not define such a relation.  The closest
-# available outgoing Experiment predicate is TESTS (Experiment -[:TESTS]-> Assumption).
-# We reuse TESTS here with Risk as the target — the ontology's domain/range gate
-# does not constrain pure read queries, so the Cypher executes safely against any
-# Experiment-TESTS-Risk edge a user may have validated, and naturally returns
-# zero "mitigated" risks when no such edges exist (i.e. every risked milestone
-# remains unmitigated).  Revisit once a proper MITIGATES predicate lands in the
-# ontology YAML.
 register(
     name="risked_milestones",
     title="Risked milestones",
     description="Milestones threatened by a risk with no mitigating experiment.",
     cypher=(
         "MATCH (m:Entity:Milestone)<-[:THREATENS]-(r:Entity:Risk) "
-        "WHERE NOT (:Entity:Experiment)-[:TESTS]->(r) "
+        "WHERE NOT (:Entity:Experiment)-[:MITIGATES]->(r) "
         "RETURN m.id AS id, m.name AS name, collect(r.name) AS unmitigated_risks "
         "LIMIT $limit"
     ),

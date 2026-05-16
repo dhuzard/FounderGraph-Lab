@@ -1,4 +1,4 @@
-.PHONY: up down logs test lint format pull-models init init-trialmesh reset-demo generate generate-check
+.PHONY: up down logs test lint format pull-models init init-trialmesh reset-demo demo generate generate-check
 
 ifeq ($(OS),Windows_NT)
 PYTHON ?= py -3
@@ -36,6 +36,9 @@ init-trialmesh:
 
 reset-demo:
 	$(PYTHON) scripts/reset_demo_state.py
+
+demo:
+	$(PYTHON) scripts/load_contradictory_demo.py
 
 # Regenerate Pydantic models / JSON-Schema / SHACL shapes / Cypher DDL from
 # the LinkML source of truth (app/ontology/startup_ontology.linkml.yaml).

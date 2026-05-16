@@ -149,6 +149,10 @@ class TestOntologyDrift:
         loader = get_ontology()
         assert loader.validate_relation("SUPPORTED_BY", "Assumption", "Evidence")
 
+    def test_validate_relation_known_valid_mitigates(self):
+        loader = get_ontology()
+        assert loader.validate_relation("MITIGATES", "Experiment", "Risk")
+
     def test_validate_relation_known_invalid(self):
         loader = get_ontology()
         # Founder -THREATENS-> ProductFeature is not in the ontology

@@ -137,18 +137,18 @@ Ordered by impact-to-effort. None of these are blockers; the system is shippable
 
 ### Ontology completeness
 
-- [ ] 9.1 Add `MITIGATES` predicate (`Experiment → Risk`) to `startup_ontology.linkml.yaml`; regenerate artifacts; update `discovery_queries.risked_milestones` to use `MITIGATES` instead of the current `TESTS` substitution (see comment in `app/services/discovery_queries.py:153`). Drop the substitution note.
+- [x] 9.1 Add `MITIGATES` predicate (`Experiment → Risk`) to `startup_ontology.linkml.yaml`; regenerate artifacts; update `discovery_queries.risked_milestones` to use `MITIGATES` instead of the current `TESTS` substitution (see comment in `app/services/discovery_queries.py:153`). Drop the substitution note.
 - [ ] 9.2 Audit `app/services/ontology_service.py` — it predates LinkML. Either retire it (move `init_ontology.py` wizard onto the LinkML loader) or document its scope so future contributors don't add drift.
 
 ### Demo readiness
 
 - [ ] 9.3 End-to-end smoke run on `sample_data/contradictory_*.md`: upload → extract → validate → discover. Capture screenshots of the Discovery page showing the planted contradictions, and the Agents page showing grounded citations. Embed in `README.md` or `STEP_BY_STEP_USER_GUIDE.md`.
-- [ ] 9.4 Add a `make demo` target that wipes `data/` then loads the contradictory sample, so a fresh clone shows drama in <2 min.
+- [x] 9.4 Add a `make demo` target that wipes `data/` then loads the contradictory sample, so a fresh clone shows drama in <2 min.
 - [ ] 9.5 30-second screencast per pillar (5 total) for the README.
 
 ### CI / DevEx
 
-- [ ] 9.6 Wire `make generate-check` into `.github/workflows/` so a PR that edits the LinkML YAML without regenerating artifacts fails CI.
+- [x] 9.6 Wire `make generate-check` into `.github/workflows/` so a PR that edits the LinkML YAML without regenerating artifacts fails CI.
 - [ ] 9.7 Add a GitHub Actions job that runs `pytest` + the LinkML drift check on every push.
 - [ ] 9.8 Pre-commit hook for `make generate-check` so the failure surfaces locally before CI.
 
@@ -181,4 +181,3 @@ These were `🟡` / `🟢` before the GraphRAG upgrade and remain open:
 - [ ] 9.22 `Graphiti` (Zep AI) evaluation as a managed alternative to the hand-rolled bi-temporal layer.
 - [ ] 9.23 Multi-tenant data isolation (per-startup namespace) — currently single-tenant.
 - [ ] 9.24 Replace Ollama as the default LLM with `claude-haiku-4-5-20251001` for the planner / verifier hot paths (cheaper, faster, JSON-mode native). Keep Ollama for embedding so local-first remains intact.
-
