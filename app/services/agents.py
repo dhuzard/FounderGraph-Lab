@@ -300,6 +300,11 @@ def run_agent_workflow(
                 )
             except Exception:  # pragma: no cover -- defensive
                 hybrid = None
+            finally:
+                try:
+                    retriever.neo4j.close()
+                except Exception:  # pragma: no cover -- best effort cleanup
+                    pass
 
     if on_progress:
         on_progress({"phase": "synthesis", "message": "Generating audit with Ollama"})

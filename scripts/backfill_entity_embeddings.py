@@ -101,9 +101,10 @@ def main(argv: list[str] | None = None) -> int:
     qdrant = QdrantService()
 
     total_embedded = 0
+    total_processed = 0
     total_skipped = 0
     batch_no = 0
-    while total_embedded + total_skipped < args.max_entities:
+    while total_processed + total_skipped < args.max_entities:
         batch_no += 1
         batch = _list_entities_without_embedding(graph.driver, args.batch_size)
         if not batch:
@@ -134,7 +135,8 @@ def main(argv: list[str] | None = None) -> int:
                 print(f"  - would embed {entity_id!r} (summary: {summary[:80]!r})")
             else:
                 graph.upsert_entity_embedding(str(entity_id), vector)
-            total_embedded += 1
+                total_embedded += 1
+            total_processed += 1
         # Guard against an infinite loop if the WHERE clause never narrows
         # (e.g. a write failure leaves the embedding NULL forever).
         if args.dry_run:
@@ -142,7 +144,7 @@ def main(argv: list[str] | None = None) -> int:
 
     graph.close()
     print(
-        f"done: embedded={total_embedded} skipped={total_skipped} "
+        f"done: processed={total_processed} embedded={total_embedded} skipped={total_skipped} "
         f"(dry_run={args.dry_run})"
     )
     return 0

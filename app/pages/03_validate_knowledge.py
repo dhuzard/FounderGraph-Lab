@@ -503,6 +503,7 @@ with tab_resolve:
             qdrant = QdrantService()
             return qdrant.embed
         except Exception:  # noqa: BLE001 — best-effort fallback
+            import hashlib
             import math
             import re
 
@@ -511,7 +512,9 @@ with tab_resolve:
             def _hashed(name: str, dims: int = 64) -> list[float]:
                 vec = [0.0] * dims
                 for tok in _token_re.findall(name or ""):
-                    vec[abs(hash(tok.lower())) % dims] += 1.0
+                    digest = hashlib.sha256(tok.lower().encode("utf-8")).digest()
+                    idx = int.from_bytes(digest[:8], byteorder="big") % dims
+                    vec[idx] += 1.0
                 norm = math.sqrt(sum(x * x for x in vec))
                 if norm == 0.0:
                     return vec

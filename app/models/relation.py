@@ -26,6 +26,7 @@ except (ImportError, ModuleNotFoundError):  # pragma: no cover
 RelationType = Literal[
     "TARGETS",
     "HAS_PROBLEM",
+    "IN_COMMUNITY",
     "ADDRESSES",
     "BASED_ON",
     "PROVIDES",
@@ -41,6 +42,7 @@ RelationType = Literal[
     "MENTIONS",
     "SOURCE_OF",
     "RELATED_TO",
+    "SAME_AS",
     "SUPERSEDED_BY",
 ]
 

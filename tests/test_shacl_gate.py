@@ -12,7 +12,6 @@ pytest.importorskip("pyshacl")
 pytest.importorskip("rdflib")
 
 
-from app.services import shacl_gate
 from app.services.shacl_gate import (
     DEFAULT_SHAPES_PATH,
     Violation,
@@ -90,7 +89,7 @@ def test_valid_graph_passes(shapes_path):
     )
 
 
-def test_violations_persisted_atomically(tmp_path):
+def test_violations_persisted_atomically(tmp_path, monkeypatch):
     """``write_violations`` must use the ``.tmp`` -> rename pattern."""
     target = tmp_path / "shacl_violations.json"
     violations = [
@@ -115,14 +114,8 @@ def test_violations_persisted_atomically(tmp_path):
         return original_replace(self, target_path)
 
     # Patch Path.replace to observe the rename without breaking the contract.
-    monkeypatched = False
-    try:
-        Path.replace = _spy_replace  # type: ignore[method-assign]
-        monkeypatched = True
-        out = write_violations(violations, target)
-    finally:
-        if monkeypatched:
-            Path.replace = original_replace  # type: ignore[method-assign]
+    monkeypatch.setattr(Path, "replace", _spy_replace)
+    out = write_violations(violations, target)
 
     assert out == target
     assert target.exists()

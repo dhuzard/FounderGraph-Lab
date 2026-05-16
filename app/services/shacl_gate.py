@@ -78,9 +78,10 @@ def serialize_staging_to_rdf(
     """Build an rdflib Graph from staged entities + relations.
 
     Each entity becomes ``fg:<id> a fg:<Type>`` plus one literal triple per
-    populated property.  Relations are reified as ``fg:<src> fg:<predicate>
-    fg:<tgt>`` so SHACL shapes that constrain link cardinality (e.g.
-    Assumption MUST have at least one SUPPORTED_BY edge) can still fire.
+    populated property.  ``relations`` is currently accepted for forward
+    compatibility but intentionally ignored by the serializer because the
+    generated NodeShapes are closed-world and relation triples would trigger
+    ``sh:ClosedConstraintComponent`` noise.
 
     Returns an ``rdflib.Graph``; raises ``ImportError`` if rdflib isn't
     available (we surface this at call-time so the module import remains
@@ -167,7 +168,6 @@ def validate(
 
 def _extract_violations(results_graph) -> list[Violation]:
     """Translate a pySHACL results graph into structured Violation records."""
-    from rdflib import URIRef
     from rdflib.namespace import RDF, Namespace
 
     SH = Namespace("http://www.w3.org/ns/shacl#")
